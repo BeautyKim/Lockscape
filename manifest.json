@@ -1,0 +1,9 @@
+{
+  "id": "vault-lock",
+  "name": "Vault Lock",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Password lock screen on startup, idle and app switch. Works on desktop and mobile. Does not encrypt files.",
+  "author": "arkim",
+  "isDesktopOnly": false
+}

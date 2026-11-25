@@ -1,0 +1,5 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#888">
+<script>
+const q=new URLSearchParams(location.search);const w=+q.get("w"),h=+q.get("h");q.delete("w");q.delete("h");
+document.write(`<iframe src="index.html?${q}" style="display:block;margin:10px;border:0;width:${w}px;height:${h}px;background:#fff"></iframe>`);
+</script>

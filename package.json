@@ -1,0 +1,19 @@
+{
+  "name": "obsidian-vault-lock",
+  "version": "0.1.0",
+  "description": "Password lock screen for Obsidian (desktop + mobile). No runtime dependencies, no network.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --noEmit && node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs watch",
+    "test": "esbuild tools/test.ts --bundle --platform=node --outfile=.test-build/test.cjs --log-level=error && node .test-build/test.cjs",
+    "harness": "sh tools/harness/build.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "latest",
+    "typescript": "^5.6.0"
+  }
+}

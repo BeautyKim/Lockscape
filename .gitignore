@@ -1,0 +1,4 @@
+.test-build/
+node_modules/
+tools/harness/bundle.js
+tools/harness/styles.css
