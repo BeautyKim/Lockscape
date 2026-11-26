@@ -1128,3 +1128,34 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 
 /* The recovery key shown once in its dialog */
 .vault-lock-recovery-key { display: block; margin: 12px 0; padding: 12px; text-align: center; font-size: 1.25em; letter-spacing: 0.08em; user-select: all; }
+
+/* ---- to-dos never make the whole screen scroll: the stage stays inside the window and the list takes the squeeze ---- */
+.vault-lock-overlay .vault-lock-stage.has-todos { max-height: 100%; }
+.vault-lock-overlay .vault-lock-stage.has-todos > :not(.vault-lock-todos) { flex-shrink: 0; }
+.vault-lock-overlay .vault-lock-stage.has-todos > .vault-lock-todos { flex: 0 1 auto; min-height: 112px; }
+/* none or one item: the panel is only as tall as its content (the minimum would leave a hole above the "add" field) */
+.vault-lock-overlay .vault-lock-stage.has-todos > .vault-lock-todos.is-short { flex-shrink: 0; min-height: 0; }
+/* the game canvas also has to leave room for the to-do panel (186px: its smallest height, the gap, and the extra frame parts the game themes draw) */
+.vault-lock-overlay.is-game .vault-lock-stage.has-todos .vault-lock-game-canvas {
+	width: min(100%, var(--vl-game-w, 280px), calc((100vh - var(--vl-game-reserve, 300px) - 186px) * var(--vl-game-r, 1)));
+}
+/* short window: tighter spacing, and the terminal theme's decorative log gives way to the to-dos */
+@media (max-height: 640px) {
+	.vault-lock-overlay .vault-lock-stage.has-todos { gap: 10px; }
+	.vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-card { gap: 8px; }
+	.vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-log { display: none; }
+}
+/* too small even so: the stage scrolls inside its frame, nothing is cut off */
+.vault-lock-overlay .vault-lock-stage.has-todos { overflow-y: auto; }
+@media (max-height: 540px) { .vault-lock-overlay .vault-lock-stage.has-todos, .vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-card { gap: 6px; } }
+
+/* ---- hidden password field + to-dos: while the field is invisible, the to-dos slide up into its empty space ----
+ * Only the to-do panel moves (a transform, so nothing re-flows): the card keeps its size and stays under the pointer.
+ * --vl-reveal-shift is measured in lockscreen.ts. The selector is the opposite of the "reveal" rules above. */
+.vault-lock-overlay.hover-reveal .vault-lock-todos { transition: transform 0.25s ease; }
+.vault-lock-overlay.hover-reveal:not(.is-recovery):not(.has-message):not(.is-busy):not(.has-typed):not(.is-unlocking) .vault-lock-card:not(:hover):not(:focus-within) ~ .vault-lock-todos {
+	transform: translateY(calc(-1 * var(--vl-reveal-shift, 0px)));
+}
+@media (prefers-reduced-motion: reduce) { .vault-lock-overlay.hover-reveal .vault-lock-todos { transition: none; } }
+/* side by side (low landscape window): the to-dos are next to the card, there is nothing to move into */
+@media (orientation: landscape) and (max-height: 520px) { .vault-lock-overlay.hover-reveal .vault-lock-card ~ .vault-lock-todos { transform: none !important; } }

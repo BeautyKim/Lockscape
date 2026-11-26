@@ -18,6 +18,8 @@ let todos = q.get("todos") === "1" ? [
   { id: "2", text: "Email design team", done: true },
   { id: "3", text: "회의록 정리", done: false },
 ] : [];
+// todos=N (2 or more) fills the list with N items
+if (Number(q.get("todos")) > 1) todos = Array.from({ length: Number(q.get("todos")) }, (_, i) => ({ id: String(i), text: `할 일 ${i + 1}`, done: i % 4 === 1 }));
 const retryAt = state === "wait" ? Date.now() + 90_000 : 0;
 const ls = new LockScreen(getStrings(lang), {
   submit: async () => ({ ok: false, message: getStrings(lang).wrong }),
@@ -31,7 +33,7 @@ const ls = new LockScreen(getStrings(lang), {
     dim: Number(q.get("dim") ?? 35), blur: Number(q.get("blur") ?? 0),
     animation: (q.get("anim") ?? "none") as any,
     showClock: q.get("clock") !== "0", showSeconds: q.get("sec") === "1", showDate: q.get("date") !== "0",
-    clockFormat: (q.get("fmt") ?? "auto") as any, showTodos: q.get("todos") === "1", hoverReveal: q.get("reveal") === "1",
+    clockFormat: (q.get("fmt") ?? "auto") as any, showTodos: q.get("todos") === "empty" || Number(q.get("todos")) > 0, hoverReveal: q.get("reveal") === "1",
     titleMode: (q.get("title") ?? "auto") as any, customTitle: q.get("custom") ?? "", showIcon: q.get("icon") !== "0",
     position: (q.get("pos") ?? "center") as any, fieldShape: (q.get("shape") ?? "auto") as any,
     clockScale: Number(q.get("scale") ?? 100), clockFont: (q.get("font") ?? "auto") as any, clockWeight: Number(q.get("weight") ?? 300),

@@ -125,6 +125,9 @@ function newId(): string {
 }
 
 /** One overlay per window document. */
+/** The part of the card that the sliding to-do panel never covers while the password field is hidden. */
+const REVEAL_HOVER_ZONE = 64;
+
 class OverlayView {
 	readonly root: HTMLElement;
 	readonly input: HTMLInputElement;
@@ -260,6 +263,7 @@ class OverlayView {
 		forgot.addEventListener("click", () => {
 			this.setRecovery(!this.recoveryOn);
 			input.value = "";
+			this.syncTyped();
 			input.focus({ preventScroll: true });
 		});
 		card.append(icon, title, form, forgot, message, this.hint);
@@ -395,10 +399,19 @@ class OverlayView {
 			this.onViewport = null;
 		}
 
-		// The height of the field slot drives the "centred when hidden, glide up when revealed" layout (CSS var).
+		// Hidden password field: how far the to-dos may slide up into the empty space under the title (see styles.css).
+		// At least REVEAL_HOVER_ZONE px at the top of the card stay uncovered, so there is always something to hover.
 		const RO = (this.win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
-		this.slotObserver = RO ? new RO(() => root.style.setProperty("--vl-slot-h", `${form.offsetHeight}px`)) : null;
+		this.slotObserver = RO
+			? new RO(() => {
+					const keep = Math.max(form.offsetTop - card.offsetTop, REVEAL_HOVER_ZONE);
+					root.style.setProperty("--vl-reveal-shift", `${Math.max(card.offsetHeight - keep, 0)}px`);
+				})
+			: null;
 		this.slotObserver?.observe(form);
+		this.slotObserver?.observe(card);
+		// Typed text keeps a hidden field visible wherever the focus goes; the to-dos must not slide over it then.
+		input.addEventListener("input", () => this.syncTyped());
 
 		// Do not keep decoding a background video while the window is hidden (battery on laptops and phones).
 		this.onVis = () => {
@@ -516,6 +529,7 @@ class OverlayView {
 		this.root.style.removeProperty("top");
 		this.root.style.removeProperty("height");
 		this.input.value = "";
+		this.syncTyped();
 		this.setBusy(false);
 		this.setMessage("");
 	}
@@ -924,8 +938,13 @@ class OverlayView {
 			return row;
 		});
 		this.todoList.replaceChildren(...rows);
+		this.todosEl.classList.toggle("is-short", todos.length <= 1);
 		const addForm = this.todosEl.querySelector<HTMLElement>(".vault-lock-todo-add");
 		addForm?.classList.toggle("is-off", todos.length >= MAX_TODOS);
+	}
+
+	syncTyped(): void {
+		this.root.classList.toggle("has-typed", this.input.value !== "");
 	}
 
 	setMessage(text: string): void {
@@ -1210,6 +1229,7 @@ export class LockScreen {
 		this.eachView((v) => {
 			v.setBusy(false);
 			v.input.value = "";
+			v.syncTyped();
 			v.setMessage(result.message);
 			v.setDenied();
 		});

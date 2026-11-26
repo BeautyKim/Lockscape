@@ -3662,6 +3662,7 @@ function loginStamp(d) {
 function newId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 }
+var REVEAL_HOVER_ZONE = 64;
 var OverlayView = class {
   constructor(doc, t, handlers, keymap) {
     this.doc = doc;
@@ -3751,6 +3752,7 @@ var OverlayView = class {
     forgot.addEventListener("click", () => {
       this.setRecovery(!this.recoveryOn);
       input.value = "";
+      this.syncTyped();
       input.focus({ preventScroll: true });
     });
     card.append(icon, title, form, forgot, message, this.hint);
@@ -3849,8 +3851,13 @@ var OverlayView = class {
       this.onViewport = null;
     }
     const RO = this.win.ResizeObserver;
-    this.slotObserver = RO ? new RO(() => root.style.setProperty("--vl-slot-h", `${form.offsetHeight}px`)) : null;
+    this.slotObserver = RO ? new RO(() => {
+      const keep = Math.max(form.offsetTop - card.offsetTop, REVEAL_HOVER_ZONE);
+      root.style.setProperty("--vl-reveal-shift", `${Math.max(card.offsetHeight - keep, 0)}px`);
+    }) : null;
     this.slotObserver?.observe(form);
+    this.slotObserver?.observe(card);
+    input.addEventListener("input", () => this.syncTyped());
     this.onVis = () => {
       const v = this.video;
       if (!v) return;
@@ -3952,6 +3959,7 @@ var OverlayView = class {
     this.root.style.removeProperty("top");
     this.root.style.removeProperty("height");
     this.input.value = "";
+    this.syncTyped();
     this.setBusy(false);
     this.setMessage("");
   }
@@ -4323,8 +4331,12 @@ var OverlayView = class {
       return row;
     });
     this.todoList.replaceChildren(...rows);
+    this.todosEl.classList.toggle("is-short", todos.length <= 1);
     const addForm = this.todosEl.querySelector(".vault-lock-todo-add");
     addForm?.classList.toggle("is-off", todos.length >= MAX_TODOS);
+  }
+  syncTyped() {
+    this.root.classList.toggle("has-typed", this.input.value !== "");
   }
   setMessage(text) {
     this.message.textContent = text;
@@ -4576,6 +4588,7 @@ var LockScreen = class {
     this.eachView((v) => {
       v.setBusy(false);
       v.input.value = "";
+      v.syncTyped();
       v.setMessage(result.message);
       v.setDenied();
     });
