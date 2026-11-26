@@ -44,7 +44,7 @@ function pickFile(doc, accept) {
     const input = doc.createElement("input");
     input.type = "file";
     input.accept = accept;
-    input.style.display = "none";
+    input.hidden = true;
     const done = (file) => {
       input.remove();
       resolve(file);
@@ -2033,11 +2033,6 @@ function resolveLocale(tag) {
   return LOCALES[base] ? base : "en";
 }
 function detectTag() {
-  try {
-    const stored = window.localStorage.getItem("language");
-    if (stored) return stored;
-  } catch {
-  }
   return navigator.language || "en";
 }
 function getStrings(tag = detectTag()) {
@@ -4752,7 +4747,7 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULTS };
-    this.t = getStrings();
+    this.t = getStrings((0, import_obsidian3.getLanguage)());
     this.lastActivity = Date.now();
     this.hiddenAt = null;
     /** Documents of popout windows, taken straight from `window-open`: the window has no leaf yet at that moment. */
@@ -4805,7 +4800,7 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
   }
   async onload() {
     await this.loadSettings();
-    this.t = getStrings();
+    this.t = getStrings((0, import_obsidian3.getLanguage)());
     this.lockScreen = new LockScreen(this.t, {
       submit: (pw, kind) => this.attemptUnlock(pw, kind),
       getRetryAt: () => this.capRetryAt(),
@@ -4968,7 +4963,7 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
       clockWeight: s.clockWeight,
       textColor: s.textColor,
       accentColor: s.accentColor,
-      locale: detectTag()
+      locale: (0, import_obsidian3.getLanguage)()
     };
   }
   // ---- unlock / rate limiting ---------------------------------------------------------

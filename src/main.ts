@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Platform, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Modal, Notice, Platform, Plugin, PluginSettingTab, Setting, getLanguage } from "obsidian";
 import {
 	VIDEO_EXTS,
 	backgroundPath,
@@ -22,7 +22,7 @@ import {
 	verifyPassword,
 	verifyRecoveryKey,
 } from "./crypto";
-import { detectTag, fmt, getStrings, type Strings } from "./i18n";
+import { fmt, getStrings, type Strings } from "./i18n";
 import { charCount, clipChars } from "./text";
 import { MAX_SCORE, THEMES, emptyHighScores, mergeHighScores, parseHighScores, parseTheme, type HighScores, type Theme } from "./themes";
 import {
@@ -203,7 +203,7 @@ function cleanTodos(v: unknown): Todo[] {
 
 export default class VaultLockPlugin extends Plugin {
 	settings: Settings = { ...DEFAULTS };
-	t: Strings = getStrings();
+	t: Strings = getStrings(getLanguage());
 	private lockScreen!: LockScreen;
 	private lastActivity = Date.now();
 	private hiddenAt: number | null = null;
@@ -266,7 +266,7 @@ export default class VaultLockPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
-		this.t = getStrings();
+		this.t = getStrings(getLanguage());
 
 		this.lockScreen = new LockScreen(this.t, {
 			submit: (pw, kind) => this.attemptUnlock(pw, kind),
@@ -454,7 +454,7 @@ export default class VaultLockPlugin extends Plugin {
 			clockWeight: s.clockWeight,
 			textColor: s.textColor,
 			accentColor: s.accentColor,
-			locale: detectTag(),
+			locale: getLanguage(),
 		};
 	}
 

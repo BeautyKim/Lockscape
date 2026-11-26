@@ -28,7 +28,7 @@ function pickFile(doc: Document, accept: string): Promise<File | null> {
 		const input = doc.createElement("input");
 		input.type = "file";
 		input.accept = accept;
-		input.style.display = "none";
+		input.hidden = true;
 		const done = (file: File | null) => {
 			input.remove();
 			resolve(file);

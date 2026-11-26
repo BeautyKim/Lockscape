@@ -35,14 +35,8 @@ export function resolveLocale(tag: string | null | undefined): string {
 	return LOCALES[base] ? base : "en";
 }
 
+/** Language tag when Obsidian's own setting is not at hand (tests, the browser harness). The plugin itself passes `getLanguage()`. */
 export function detectTag(): string {
-	// Obsidian stores the app language (Settings → General → Language) here, on desktop and mobile.
-	try {
-		const stored = window.localStorage.getItem("language");
-		if (stored) return stored;
-	} catch {
-		/* storage blocked: fall through */
-	}
 	return navigator.language || "en";
 }
 
