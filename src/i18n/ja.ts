@@ -24,8 +24,7 @@ const ja: Strings = {
 	idleOff: "オフ",
 	minutes: "{n}分",
 	lockOnHide: "アプリを離れたらロック",
-	lockOnHideDesc:
-		"他のアプリに切り替えたりウィンドウを最小化したときにロックします。アプリ切り替え画面にノートが映らないよう、すぐに覆い隠します。",
+	lockOnHideDesc: "ウィンドウを最小化したり隠したりしたとき。すぐにノートを覆い隠します。",
 	grace: "猶予時間",
 	graceDesc: "この時間内に戻った場合は、再入力を求めません。",
 	immediately: "すぐに",

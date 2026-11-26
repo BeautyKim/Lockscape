@@ -24,8 +24,7 @@ const fr: Strings = {
 	idleOff: "Désactivé",
 	minutes: "{n} min",
 	lockOnHide: "Verrouiller en quittant l'app",
-	lockOnHideDesc:
-		"Lors d'un changement d'app ou de la réduction de la fenêtre. Le contenu est masqué immédiatement pour ne pas apparaître dans le sélecteur d'apps.",
+	lockOnHideDesc: "Lorsque la fenêtre est réduite ou masquée. Les notes sont masquées immédiatement.",
 	grace: "Délai de grâce",
 	graceDesc: "Aucun mot de passe demandé si vous revenez dans ce délai.",
 	immediately: "Immédiatement",

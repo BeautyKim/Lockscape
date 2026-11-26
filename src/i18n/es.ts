@@ -24,8 +24,7 @@ const es: Strings = {
 	idleOff: "Desactivado",
 	minutes: "{n} min",
 	lockOnHide: "Bloquear al salir de la app",
-	lockOnHideDesc:
-		"Al cambiar de app o minimizar la ventana. Se cubre el contenido al instante para que la nota no se vea en el selector de apps.",
+	lockOnHideDesc: "Al minimizar u ocultar la ventana. Las notas se cubren al instante.",
 	grace: "Periodo de gracia",
 	graceDesc: "No se pide la contraseña si vuelves dentro de este tiempo.",
 	immediately: "Inmediatamente",

@@ -24,7 +24,7 @@ const ko: Strings = {
 	idleOff: "사용 안 함",
 	minutes: "{n}분",
 	lockOnHide: "앱을 벗어나면 잠금",
-	lockOnHideDesc: "모바일에서 다른 앱으로 전환하거나 창을 최소화할 때. 전환 화면에 노트가 보이지 않도록 즉시 가립니다.",
+	lockOnHideDesc: "창을 최소화하거나 숨길 때. 노트를 바로 가립니다.",
 	grace: "유예 시간",
 	graceDesc: "이 시간 안에 돌아오면 다시 묻지 않습니다.",
 	immediately: "즉시",

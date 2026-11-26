@@ -25,8 +25,7 @@ const pt: Strings = {
 	idleOff: "Desativado",
 	minutes: "{n} min",
 	lockOnHide: "Bloquear ao sair do app",
-	lockOnHideDesc:
-		"Ao trocar de app ou minimizar a janela. O conteúdo é coberto na hora para que a nota não apareça no seletor de apps.",
+	lockOnHideDesc: "Ao minimizar ou ocultar a janela. As notas são cobertas na hora.",
 	grace: "Tempo de tolerância",
 	graceDesc: "A senha não é pedida se você voltar dentro deste tempo.",
 	immediately: "Imediatamente",

@@ -24,7 +24,7 @@ const zh: Strings = {
 	idleOff: "关闭",
 	minutes: "{n} 分钟",
 	lockOnHide: "离开应用时锁定",
-	lockOnHideDesc: "切换到其他应用或最小化窗口时。会立即遮住内容,避免笔记显示在应用切换界面中。",
+	lockOnHideDesc: "最小化或隐藏窗口时。会立即遮住笔记。",
 	grace: "宽限时间",
 	graceDesc: "在此时间内返回则不再要求输入密码。",
 	immediately: "立即",

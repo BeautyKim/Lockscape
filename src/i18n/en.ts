@@ -24,8 +24,7 @@ const en = {
 	idleOff: "Off",
 	minutes: "{n} min",
 	lockOnHide: "Lock when leaving the app",
-	lockOnHideDesc:
-		"When switching apps or minimizing the window. The note is covered immediately so it is not visible in the app switcher.",
+	lockOnHideDesc: "When the window is minimized or hidden. The notes are covered at once.",
 	grace: "Grace period",
 	graceDesc: "No password prompt if you come back within this time.",
 	immediately: "Immediately",

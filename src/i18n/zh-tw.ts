@@ -24,7 +24,7 @@ const zhTW: Strings = {
 	idleOff: "關閉",
 	minutes: "{n} 分鐘",
 	lockOnHide: "離開應用程式時鎖定",
-	lockOnHideDesc: "切換到其他應用程式或最小化視窗時。會立即遮住內容,避免筆記顯示在應用程式切換畫面中。",
+	lockOnHideDesc: "最小化或隱藏視窗時。會立即遮住筆記。",
 	grace: "寬限時間",
 	graceDesc: "在此時間內返回則不再要求輸入密碼。",
 	immediately: "立即",

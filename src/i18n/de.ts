@@ -24,8 +24,7 @@ const de: Strings = {
 	idleOff: "Aus",
 	minutes: "{n} Min.",
 	lockOnHide: "Beim Verlassen der App sperren",
-	lockOnHideDesc:
-		"Beim Wechsel in eine andere App oder Minimieren des Fensters. Der Inhalt wird sofort verdeckt, damit die Notiz nicht in der App-Übersicht zu sehen ist.",
+	lockOnHideDesc: "Beim Minimieren oder Ausblenden des Fensters. Die Notizen werden sofort verdeckt.",
 	grace: "Kulanzzeit",
 	graceDesc: "Keine Passwortabfrage, wenn du innerhalb dieser Zeit zurückkehrst.",
 	immediately: "Sofort",
