@@ -87,6 +87,10 @@ Obsidian 1.13.0 이상이 필요합니다. 그보다 낮은 버전에는 1.8.7�
 
 Windows 95 테마는 직접 만든 오마주입니다. Lockscape는 Microsoft나 Obsidian과 관련이 없고 두 회사의 보증을 받지 않습니다.
 
+## 후원
+
+Lockscape는 무료 오픈 소스이며 모든 기능은 계속 무료입니다. 도움이 됐다면 [Ko-fi에서 커피 한 잔을 후원](https://ko-fi.com/beauty_kim)할 수 있습니다.
+
 ## 라이선스
 
 [MIT](LICENSE)

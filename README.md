@@ -87,6 +87,10 @@ Requires Obsidian 1.13.0 or newer (older apps are offered version 0.1.2, which s
 
 The Windows 95 theme is a visual homage made from scratch. Lockscape is not affiliated with or endorsed by Microsoft or Obsidian.
 
+## Support
+
+Lockscape is free and open source, and every feature stays free. If it is useful to you, you can [buy me a coffee on Ko-fi](https://ko-fi.com/beauty_kim).
+
 ## License
 
 [MIT](LICENSE)
