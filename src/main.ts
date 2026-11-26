@@ -602,7 +602,7 @@ export default class VaultLockPlugin extends Plugin {
 		if (this.collectDocuments().some((d) => d.hasFocus())) return false;
 		// In Obsidian 1.x the Settings window is a modal of its own window: its `modalEl` lives in that window's document.
 		const settingsDoc = (this.app as App & { setting?: { isOpen?: boolean; modalEl?: HTMLElement } }).setting?.modalEl?.ownerDocument;
-		return !(settingsDoc && settingsDoc !== document && settingsDoc.hasFocus());
+		return !(settingsDoc && settingsDoc !== window.document && settingsDoc.hasFocus());
 	}
 
 	private allWindowsHidden(): boolean {
@@ -610,7 +610,8 @@ export default class VaultLockPlugin extends Plugin {
 	}
 
 	private collectDocuments(): Document[] {
-		const docs = new Set<Document>([document]);
+		// window.document is the main window; popout windows are added below (not activeDocument: every window must be covered)
+		const docs = new Set<Document>([window.document]);
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			const doc = leaf.view?.containerEl?.ownerDocument;
 			if (doc) docs.add(doc);

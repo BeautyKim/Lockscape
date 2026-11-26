@@ -3,6 +3,7 @@
 ```sh
 npm ci
 npm run build      # type-check, then bundle main.js (unminified, readable)
+npm run lint       # the community directory's rules; warnings fail
 npm test           # unit tests: hashing, recovery key, i18n, games, activity log
 npm run harness    # build the browser harness (see below)
 ```
@@ -54,8 +55,25 @@ The overlay is `position: fixed` with a scrollable flex container and a `margin:
 
 ## Releasing
 
-Update `version` in `manifest.json` and `package.json` (and add the minimum app version to `versions.json`), commit, then push a tag that equals the version, e.g. `git tag 0.1.1 && git push origin 0.1.1`. The workflow in `.github/workflows/release.yml` builds, tests, attests the build provenance of the three files and creates the GitHub release with `main.js`, `manifest.json` and `styles.css`.
+1. If this release needs a newer Obsidian, change `minAppVersion` in `manifest.json` first and commit it.
+2. With a clean working tree, run one of:
 
-Before releasing, run the community directory's lint rules (`eslint-plugin-obsidianmd`, recommended config) on `src/`. Two `prefer-active-doc` warnings are expected: those lines mean the main window's document.
+   ```sh
+   npm version patch   # 0.1.3 -> 0.1.4   (or: minor, major)
+   ```
+
+   It updates `package.json`, `package-lock.json`, `manifest.json` and `versions.json` (`version-bump.mjs`), commits them as `chore: release x.y.z` and creates the tag `x.y.z` (no `v`, set in `.npmrc`).
+3. Rebuild and commit `main.js` first if you changed code and have not committed the build yet (the repository tracks it).
+4. Push the commit and the tag:
+
+   ```sh
+   git push origin main --follow-tags
+   ```
+
+The workflow in `.github/workflows/release.yml` lints, builds, tests, checks that the tag equals the manifest version, attests the build provenance of the three files and publishes the GitHub release with `main.js`, `manifest.json` and `styles.css`.
+
+## Checks
+
+`npm run lint` runs the community directory's rules (`eslint-plugin-obsidianmd`, recommended config) on the plugin sources, `manifest.json`, `package.json` and `LICENSE`. Any warning fails it. `.github/workflows/lint.yml` runs lint, build and tests on every push and pull request. The directory also lints the CSS for browser support; this setup does not cover that, so check the review after a release.
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:`).

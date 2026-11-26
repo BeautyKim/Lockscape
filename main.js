@@ -5055,13 +5055,13 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
     if (!this.settings.coverOnBlur) return false;
     if (this.collectDocuments().some((d) => d.hasFocus())) return false;
     const settingsDoc = this.app.setting?.modalEl?.ownerDocument;
-    return !(settingsDoc && settingsDoc !== document && settingsDoc.hasFocus());
+    return !(settingsDoc && settingsDoc !== window.document && settingsDoc.hasFocus());
   }
   allWindowsHidden() {
     return this.collectDocuments().every((d) => d.visibilityState === "hidden");
   }
   collectDocuments() {
-    const docs = /* @__PURE__ */ new Set([document]);
+    const docs = /* @__PURE__ */ new Set([window.document]);
     this.app.workspace.iterateAllLeaves((leaf) => {
       const doc = leaf.view?.containerEl?.ownerDocument;
       if (doc) docs.add(doc);
