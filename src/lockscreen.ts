@@ -85,8 +85,8 @@ type Mode = "off" | "cover" | "locked" | "preview";
 const FONT_STACKS: Record<Exclude<FontStyle, "auto">, string> = {
 	sans: 'var(--font-interface, system-ui, sans-serif)',
 	serif: '"New York", "Iowan Old Style", Georgia, "Noto Serif KR", "Noto Serif CJK KR", serif',
-	mono: 'ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace',
-	rounded: 'ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", Nunito, Quicksand, system-ui, sans-serif',
+	mono: '"SF Mono", Menlo, Consolas, "D2Coding", monospace',
+	rounded: '"SF Pro Rounded", "Hiragino Maru Gothic ProN", Nunito, Quicksand, system-ui, sans-serif',
 };
 
 const UNLOCK_MS = 520; // padlock opens (360 ms), then the screen fades (260 ms, overlapping)
@@ -194,7 +194,7 @@ class OverlayView {
 	) {
 		this.win = doc.defaultView ?? window;
 		const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {
-			const e = doc.createElement(tag);
+			const e = createEl(tag);
 			e.className = cls;
 			return e;
 		};
@@ -704,7 +704,7 @@ class OverlayView {
 		this.updateMedia();
 		if (!url) return;
 		// Only switch to the light-on-dark "has-image" style once the picture really loaded.
-		const probe = this.doc.createElement("img");
+		const probe = createEl("img");
 		probe.onload = () => {
 			if (this.imageUrl !== url) return;
 			this.imageAutoDim = this.legibilityDim(probe);
@@ -727,7 +727,7 @@ class OverlayView {
 			this.updateMedia();
 			return;
 		}
-		const v = this.doc.createElement("video");
+		const v = createEl("video");
 		v.className = "vault-lock-video";
 		v.muted = true; // required for autoplay; the lock screen never plays sound
 		v.loop = true;
@@ -774,7 +774,7 @@ class OverlayView {
 	private legibilityDim(src: CanvasImageSource): number {
 		try {
 			const size = 24;
-			const canvas = this.doc.createElement("canvas");
+			const canvas = createEl("canvas");
 			canvas.width = canvas.height = size;
 			const ctx = canvas.getContext("2d", { willReadFrequently: true });
 			if (!ctx) return 0;
@@ -811,7 +811,7 @@ class OverlayView {
 		colors.forEach((c, i) => this.anim.style.setProperty(`--vl-c${i + 1}`, c));
 		const area = this.win.innerWidth * this.win.innerHeight;
 		const add = (tag: "b" | "i", vars: Record<string, string>) => {
-			const e = this.doc.createElement(tag);
+			const e = createEl(tag);
 			for (const [k, v] of Object.entries(vars)) e.style.setProperty(k, v);
 			this.anim.append(e);
 		};
@@ -875,7 +875,7 @@ class OverlayView {
 		}
 		const parts = runsOf(time).map((run) => {
 			if (run.pixel) return pixelSvg(this.doc, run.text);
-			const span = this.doc.createElement("span");
+			const span = createSpan();
 			span.className = "vl-px-text";
 			span.textContent = run.text;
 			return span;
@@ -902,20 +902,19 @@ class OverlayView {
 	}
 
 	renderTodos(todos: Todo[]): void {
-		const doc = this.doc;
 		const rows = todos.map((todo) => {
-			const row = doc.createElement("div");
+			const row = createDiv();
 			row.className = "vault-lock-todo" + (todo.done ? " is-done" : "");
-			const label = doc.createElement("label");
+			const label = createEl("label");
 			label.className = "vault-lock-todo-label";
-			const box = doc.createElement("input");
+			const box = createEl("input");
 			box.type = "checkbox";
 			box.checked = todo.done;
 			box.addEventListener("change", () => this.handlers.toggleTodo(todo.id));
-			const text = doc.createElement("span");
+			const text = createSpan();
 			text.textContent = todo.text; // textContent only: user text is never parsed as HTML
 			label.append(box, text);
-			const del = doc.createElement("button");
+			const del = createEl("button");
 			del.type = "button";
 			del.className = "vault-lock-todo-btn";
 			del.setAttribute("aria-label", this.t.todoDelete);

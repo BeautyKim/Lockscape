@@ -30,7 +30,7 @@ A password lock screen for [Obsidian](https://obsidian.md) on macOS and Windows.
 
 **Manually**: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/BeautyKim/Lockscape/releases/latest) into `<your vault>/.obsidian/plugins/lockscape/`, then enable **Lockscape** under Settings → Community plugins.
 
-Requires Obsidian 1.8.7 or newer. Desktop only (macOS and Windows).
+Requires Obsidian 1.13.0 or newer (older apps are offered version 0.1.2, which supports 1.8.7). Desktop only (macOS and Windows).
 
 ## Getting started
 
@@ -65,7 +65,7 @@ Requires Obsidian 1.8.7 or newer. Desktop only (macOS and Windows).
 - **Files**: it reads and writes only its own plugin folder (`data.json`, and a copy of the background photo or video you pick) and reads the one file you choose in the system file picker. It does not read your notes or anything else.
 - **What `data.json` holds**: the password and recovery key as salted PBKDF2 hashes (never in plain text), your settings, the failed-attempt counter, the activity log, to-do items (plain text) and game best scores. It syncs with your vault if you sync the plugin folder.
 - **Desktop APIs**: the optional *shrink window* and *lock when the computer locks or sleeps* features use Electron's window and power-monitor objects, which is why the plugin is desktop only.
-- **Clipboard**: the *Copy* button in the recovery-key dialog writes the key to the clipboard. Nothing is ever read from it.
+- **Clipboard**: Lockscape neither reads nor writes it. To copy the recovery key, select it and press Cmd/Ctrl+C.
 - **Account or payment**: none needed. Free and open source.
 
 ## FAQ

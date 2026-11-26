@@ -424,7 +424,8 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 
 .vault-lock-overlay.hover-reveal .vault-lock-card:hover .vault-lock-form > :is(.vault-lock-input, .vault-lock-button),
 .vault-lock-overlay.hover-reveal .vault-lock-form:focus-within > :is(.vault-lock-input, .vault-lock-button),
-.vault-lock-overlay.hover-reveal .vault-lock-form:has(.vault-lock-input:not(:placeholder-shown)) > :is(.vault-lock-input, .vault-lock-button),
+.vault-lock-overlay.hover-reveal .vault-lock-form > .vault-lock-input:not(:placeholder-shown),
+.vault-lock-overlay.hover-reveal .vault-lock-form > .vault-lock-input:not(:placeholder-shown) ~ .vault-lock-button,
 .vault-lock-overlay.hover-reveal.has-message .vault-lock-form > :is(.vault-lock-input, .vault-lock-button),
 .vault-lock-overlay.hover-reveal.is-busy .vault-lock-form > :is(.vault-lock-input, .vault-lock-button) {
 	opacity: 1;
@@ -543,8 +544,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		grid-template-areas: "clock todos" "card todos";
-		column-gap: 28px;
-		row-gap: 10px;
+		gap: 10px 28px;
 		align-items: center;
 		justify-items: center;
 	}
@@ -750,11 +750,10 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	content: "";
 	position: absolute;
 	left: 4px;
-	top: -1px;
-	width: 11px;
-	height: 14px;
-	background: var(--vl-accent, #8b5cf6);
-	clip-path: polygon(50% 0, 100% 32%, 80% 100%, 20% 100%, 0 32%);
+	top: 0;
+	width: 12px;
+	height: 13px;
+	background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 13' shape-rendering='crispEdges'%3E%3Cpath fill='%23fff' d='M3 1h6v1H3zM2 2h2v4H2zM8 2h2v4H8z'/%3E%3Cpath fill='%23ffd700' d='M1 6h10v7H1z'/%3E%3Cpath fill='%23000' d='M5 8h2v3H5z'/%3E%3C/svg%3E") no-repeat center / contain;
 }
 .vault-lock-overlay[data-theme="win95"] .vl-winbtns { display: flex; gap: 2px; margin-left: auto; }
 .vault-lock-overlay[data-theme="win95"] .vl-winbtn {
@@ -805,7 +804,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	--vl-win-fg: var(--vl-text, #c9d1d9);
 	border: 1px solid #30363d;
 	border-radius: 10px;
-	font-family: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace;
+	font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, "D2Coding", monospace;
 	align-items: stretch;
 }
 .vault-lock-overlay[data-theme="terminal"] .vault-lock-chrome { background: #161b22; border-bottom: 1px solid #30363d; }
@@ -834,8 +833,8 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 }
 .vault-lock-overlay[data-theme="terminal"] .vl-log-line:first-child { color: #8b949e; }
 .vault-lock-overlay[data-theme="terminal"] .vault-lock-icon { display: none; }
-.vault-lock-overlay[data-theme="terminal"] .vault-lock-card { display: grid; grid-template-columns: auto 1fr; gap: 14px 6px; align-items: center; }
-.vault-lock-overlay[data-theme="terminal"] .vault-lock-form { display: contents; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-card { gap: 14px; align-items: stretch; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-form { display: grid; grid-template-columns: auto 1fr; gap: 18px 6px; align-items: center; }
 .vault-lock-overlay[data-theme="terminal"] .vault-lock-prompt { display: block; grid-column: 1; grid-row: 1; color: #c9d1d9; font-size: 16px; }
 .vault-lock-overlay[data-theme="terminal"] .vault-lock-input {
 	grid-column: 2;
@@ -855,10 +854,10 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	caret-shape: block;
 	outline: none;
 }
-.vault-lock-overlay[data-theme="terminal"] .vault-lock-title { grid-column: 1 / -1; grid-row: 2; margin-top: 18px; font-size: 13px; font-weight: 400; color: var(--vl-text, #8b949e); letter-spacing: 0.06em; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-title { font-size: 13px; font-weight: 400; color: var(--vl-text, #8b949e); letter-spacing: 0.06em; }
 .vault-lock-overlay[data-theme="terminal"] .vault-lock-button {
 	grid-column: 1 / -1;
-	grid-row: 3;
+	grid-row: 2;
 	border: 1px solid #30363d;
 	border-radius: 6px;
 	background: #0d1117;
@@ -869,7 +868,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	box-shadow: none;
 }
 .vault-lock-overlay[data-theme="terminal"] .vault-lock-button:hover { background: #161b22; border-color: #8b949e; }
-.vault-lock-overlay[data-theme="terminal"] .vault-lock-message { grid-column: 1 / -1; grid-row: 4; color: #f85149; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-message { color: #f85149; }
 
 /* =========================================================================================
  * OFFLINE GAME THEMES (gameboy-snake, neon-breakout, folder-runner)
@@ -932,7 +931,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	border-radius: 6px;
 	background: #25432b;
 	color: #9bbc0f;
-	font-family: ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace;
+	font-family: "SF Mono", Menlo, Consolas, "D2Coding", monospace;
 	font-weight: 600;
 }
 .vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-button:hover { background: #2d5234; }
@@ -957,7 +956,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 }
 .vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-date { display: none; }
 .vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-time {
-	font-family: var(--vl-clock-font, ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace);
+	font-family: var(--vl-clock-font, "SF Mono", Menlo, Consolas, "D2Coding", monospace);
 	font-size: 15px;
 	font-weight: var(--vl-clock-weight, 400);
 	letter-spacing: 0.06em;
@@ -1125,7 +1124,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 .vault-lock-overlay.shape-square[data-theme] :is(.vault-lock-input, .vault-lock-button) { border-radius: 0; }
 
 /* Activity log in the settings tab */
-.vault-lock-log { margin: 0 0 1em; padding-left: 1.2em; font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.vault-lock-log { margin: 0.5em 0 0; padding-left: 1.2em; font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* The recovery key shown once in its dialog */
 .vault-lock-recovery-key { display: block; margin: 12px 0; padding: 12px; text-align: center; font-size: 1.25em; letter-spacing: 0.08em; user-select: all; }

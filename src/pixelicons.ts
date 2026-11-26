@@ -50,8 +50,7 @@ export interface PixelPalette {
 
 export function pixelLock(doc: Document, open: boolean, palette: PixelPalette): SVGSVGElement {
 	const rows = open ? LOCK_OPEN : LOCK_CLOSED;
-	const NS = "http://www.w3.org/2000/svg";
-	const svg = doc.createElementNS(NS, "svg");
+	const svg = createSvg("svg");
 	svg.setAttribute("viewBox", `0 0 ${W} ${rows.length}`);
 	svg.setAttribute("shape-rendering", "crispEdges");
 	svg.setAttribute("aria-hidden", "true");
@@ -59,7 +58,7 @@ export function pixelLock(doc: Document, open: boolean, palette: PixelPalette): 
 		for (let x = 0; x < row.length; x++) {
 			const c = row[x] as keyof PixelPalette | ".";
 			if (c === ".") continue;
-			const r = doc.createElementNS(NS, "rect");
+			const r = createSvg("rect");
 			r.setAttribute("x", String(x));
 			r.setAttribute("y", String(y));
 			r.setAttribute("width", "1");

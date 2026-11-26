@@ -139,8 +139,6 @@ const fr: Strings = {
 	resetIntro: "Vous avez déverrouillé avec la clé de récupération. Choisissez maintenant un nouveau mot de passe. Vous recevrez aussi une nouvelle clé de récupération.",
 	recoveryKeyTitle: "Votre clé de récupération",
 	recoveryKeyIntro: "Notez cette clé et gardez-la en lieu sûr, loin de cet ordinateur. Elle n’est affichée qu’une fois et ne pourra plus être consultée. Si vous oubliez le mot de passe, elle déverrouille l’écran. Quiconque la possède peut déverrouiller l’écran.",
-	copyKey: "Copier",
-	copied: "Copiée.",
 	keySaved: "Je l’ai enregistrée",
 	recoveryRow: "Clé de récupération",
 	recoveryOn: "Définie. Utilisez « Mot de passe oublié ? » sur l’écran de verrouillage.",

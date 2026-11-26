@@ -9,6 +9,9 @@ on:
 
 permissions:
   contents: write
+  # needed to attest where the release files came from
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -26,6 +29,13 @@ jobs:
         run: |
           v=$(node -p "require('./manifest.json').version")
           if [ "$v" != "${GITHUB_REF_NAME}" ]; then echo "tag ${GITHUB_REF_NAME} != manifest version $v"; exit 1; fi
+      - name: Attest the release files
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css
+            manifest.json
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}

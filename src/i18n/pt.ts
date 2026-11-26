@@ -140,8 +140,6 @@ const pt: Strings = {
 	resetIntro: "Você desbloqueou com a chave de recuperação. Escolha agora uma nova senha. Você também receberá uma nova chave de recuperação.",
 	recoveryKeyTitle: "Sua chave de recuperação",
 	recoveryKeyIntro: "Anote esta chave e guarde-a em um lugar seguro, longe deste computador. Ela é mostrada só uma vez e não pode ser consultada depois. Se você esquecer a senha, ela desbloqueia a tela. Qualquer pessoa que a tenha pode desbloquear a tela.",
-	copyKey: "Copiar",
-	copied: "Copiada.",
 	keySaved: "Já guardei",
 	recoveryRow: "Chave de recuperação",
 	recoveryOn: "Definida. Use “Esqueceu a senha?” na tela de bloqueio.",

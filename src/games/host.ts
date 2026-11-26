@@ -52,7 +52,7 @@ export class GameHost {
 		this.best = o.highScore;
 		game.setHighScore(o.highScore);
 		const { doc, win } = o;
-		const canvas = (this.canvas = doc.createElement("canvas"));
+		const canvas = (this.canvas = createEl("canvas"));
 		canvas.className = "vault-lock-game-canvas";
 		canvas.setAttribute("aria-hidden", "true");
 		const dpr = Math.min(2, win.devicePixelRatio || 1);

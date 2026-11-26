@@ -54,4 +54,8 @@ The overlay is `position: fixed` with a scrollable flex container and a `margin:
 
 ## Releasing
 
-Update `version` in `manifest.json` and `package.json` (and add the minimum app version to `versions.json`), commit, then push a tag that equals the version, e.g. `git tag 0.1.1 && git push origin 0.1.1`. The workflow in `.github/workflows/release.yml` builds and creates the GitHub release with `main.js`, `manifest.json` and `styles.css`.
+Update `version` in `manifest.json` and `package.json` (and add the minimum app version to `versions.json`), commit, then push a tag that equals the version, e.g. `git tag 0.1.1 && git push origin 0.1.1`. The workflow in `.github/workflows/release.yml` builds, tests, attests the build provenance of the three files and creates the GitHub release with `main.js`, `manifest.json` and `styles.css`.
+
+Before releasing, run the community directory's lint rules (`eslint-plugin-obsidianmd`, recommended config) on `src/`. Two `prefer-active-doc` warnings are expected: those lines mean the main window's document.
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:`).

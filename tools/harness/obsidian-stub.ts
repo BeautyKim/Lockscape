@@ -3,6 +3,13 @@ const ICONS: Record<string,string> = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 };
+// Obsidian adds these globals to every window; the plugin uses them to create elements.
+Object.assign(globalThis, {
+  createEl: (tag: string) => document.createElement(tag),
+  createSvg: (tag: string) => document.createElementNS("http://www.w3.org/2000/svg", tag),
+  createDiv: () => document.createElement("div"),
+  createSpan: () => document.createElement("span"),
+});
 export function setIcon(el: HTMLElement, id: string) {
   el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[id]??""}</svg>`;
 }

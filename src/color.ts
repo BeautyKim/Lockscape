@@ -13,7 +13,7 @@ export function cleanHex(v: unknown): string {
 /** Let the browser resolve any CSS colour string to RGB. Returns null if it cannot be parsed. */
 export function resolveColor(doc: Document, css: string): RGB | null {
 	try {
-		const canvas = doc.createElement("canvas");
+		const canvas = createEl("canvas");
 		canvas.width = canvas.height = 1;
 		const ctx = canvas.getContext("2d", { willReadFrequently: true });
 		if (!ctx) return null;

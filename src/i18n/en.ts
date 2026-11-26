@@ -139,8 +139,6 @@ const en = {
 	resetIntro: "You unlocked with your recovery key. Choose a new password now. You will get a new recovery key too.",
 	recoveryKeyTitle: "Your recovery key",
 	recoveryKeyIntro: "Write this key down and keep it somewhere safe, away from this computer. It is shown only once and cannot be looked up later. If you forget your password, it unlocks the screen. Anyone who has it can unlock the screen.",
-	copyKey: "Copy",
-	copied: "Copied.",
 	keySaved: "I saved it",
 	recoveryRow: "Recovery key",
 	recoveryOn: "Set. Use “Forgot your password?” on the lock screen.",

@@ -25,7 +25,7 @@ export function videoPath(pluginDir: string, ext: VideoExt): string {
 /** Opens the system picker. Must be called from a user gesture (button click). */
 function pickFile(doc: Document, accept: string): Promise<File | null> {
 	return new Promise((resolve) => {
-		const input = doc.createElement("input");
+		const input = createEl("input");
 		input.type = "file";
 		input.accept = accept;
 		input.hidden = true;
@@ -47,7 +47,7 @@ async function toJpeg(file: File, win: Window): Promise<ArrayBuffer> {
 		const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
 		const w = Math.max(1, Math.round(bitmap.width * scale));
 		const h = Math.max(1, Math.round(bitmap.height * scale));
-		const canvas = win.document.createElement("canvas");
+		const canvas = createEl("canvas");
 		canvas.width = w;
 		canvas.height = h;
 		const ctx = canvas.getContext("2d");
@@ -84,7 +84,7 @@ export async function removeBackground(app: App, pluginDir: string): Promise<voi
 async function verifyPlayable(file: File, doc: Document): Promise<void> {
 	const url = URL.createObjectURL(file); // blob: URL, local to this window; never leaves the machine
 	try {
-		const video = doc.createElement("video");
+		const video = createEl("video");
 		video.muted = true;
 		video.preload = "metadata";
 		await new Promise<void>((resolve, reject) => {

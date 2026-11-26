@@ -54,8 +54,7 @@ export function pixelWidth(text: string): number {
 
 /** Draw digits and colons as one <svg>. Colour comes from `fill: currentColor`, size from the stylesheet. */
 export function pixelSvg(doc: Document, text: string): SVGSVGElement {
-	const NS = "http://www.w3.org/2000/svg";
-	const svg = doc.createElementNS(NS, "svg");
+	const svg = createSvg("svg");
 	svg.setAttribute("viewBox", `0 0 ${pixelWidth(text)} ${GLYPH_ROWS}`);
 	svg.setAttribute("shape-rendering", "crispEdges");
 	svg.setAttribute("aria-hidden", "true");
@@ -73,7 +72,7 @@ export function pixelSvg(doc: Document, text: string): SVGSVGElement {
 				}
 				let end = c + 1;
 				while (end < row.length && row[end] === "#") end++; // one rect per run of lit cells
-				const r = doc.createElementNS(NS, "rect");
+				const r = createSvg("rect");
 				r.setAttribute("x", String(x + c));
 				r.setAttribute("y", String(y));
 				r.setAttribute("width", String(end - c));

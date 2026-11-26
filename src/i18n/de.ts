@@ -139,8 +139,6 @@ const de: Strings = {
 	resetIntro: "Du hast mit dem Wiederherstellungsschlüssel entsperrt. Lege jetzt ein neues Passwort fest. Du erhältst auch einen neuen Wiederherstellungsschlüssel.",
 	recoveryKeyTitle: "Dein Wiederherstellungsschlüssel",
 	recoveryKeyIntro: "Schreibe diesen Schlüssel auf und bewahre ihn sicher auf, weit weg von diesem Computer. Er wird nur einmal angezeigt und lässt sich später nicht mehr abrufen. Wenn du das Passwort vergisst, entsperrt er den Bildschirm. Jeder, der ihn hat, kann den Bildschirm entsperren.",
-	copyKey: "Kopieren",
-	copied: "Kopiert.",
 	keySaved: "Ich habe ihn gespeichert",
 	recoveryRow: "Wiederherstellungsschlüssel",
 	recoveryOn: "Festgelegt. Verwende „Passwort vergessen?“ auf dem Sperrbildschirm.",

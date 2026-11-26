@@ -138,8 +138,6 @@ const zh: Strings = {
 	resetIntro: "你已用恢复密钥解锁。请现在设置新密码,同时会生成新的恢复密钥。",
 	recoveryKeyTitle: "你的恢复密钥",
 	recoveryKeyIntro: "请抄下这个密钥,保存在远离这台电脑的安全地方。它只显示一次,之后无法再查看。忘记密码时可用它解锁屏幕。任何拿到它的人都能解锁屏幕。",
-	copyKey: "复制",
-	copied: "已复制。",
 	keySaved: "我已保存",
 	recoveryRow: "恢复密钥",
 	recoveryOn: "已设置。在锁屏界面点击“忘记密码?”使用。",

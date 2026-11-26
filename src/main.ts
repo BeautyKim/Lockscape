@@ -1,4 +1,16 @@
-import { App, Modal, Notice, Platform, Plugin, PluginSettingTab, Setting, getLanguage } from "obsidian";
+import {
+	App,
+	Modal,
+	Notice,
+	Platform,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+	getLanguage,
+	type SettingDefinition,
+	type SettingDefinitionControl,
+	type SettingDefinitionItem,
+} from "obsidian";
 import {
 	VIDEO_EXTS,
 	backgroundPath,
@@ -713,123 +725,338 @@ class VaultLockSettingTab extends PluginSettingTab {
 		super(app, plugin);
 	}
 
-	display(): void {
-		const { containerEl } = this;
+	/** The whole tab, declared so Obsidian can also list these settings in its settings search. */
+	getSettingDefinitions(): SettingDefinitionItem[] {
 		const t = this.plugin.t;
-		const s = this.plugin.settings;
-		const save = () => this.plugin.saveSettings();
-		containerEl.empty();
+		const s = () => this.plugin.settings;
 
-		containerEl.createEl("p", { text: t.settingsInfo, cls: "setting-item-description" });
-
-		const pw = new Setting(containerEl)
-			.setName(t.password)
-			.setDesc(this.plugin.hasPassword ? t.passwordSet : t.passwordNotSet);
-		if (this.plugin.hasPassword) {
-			pw.addButton((b) => b.setButtonText(t.changePassword).onClick(() => this.openModal("change")));
-			pw.addButton((b) => b.setButtonText(t.removePassword).setWarning().onClick(() => this.openModal("remove")));
-		} else {
-			pw.addButton((b) => b.setButtonText(t.setPassword).setCta().onClick(() => this.openModal("set")));
-		}
-
-		if (this.plugin.hasPassword) {
-			new Setting(containerEl)
-				.setName(t.recoveryRow)
-				.setDesc(s.recovery ? t.recoveryOn : t.recoveryOff)
-				.addButton((b) => b.setButtonText(s.recovery ? t.renewRecovery : t.makeRecovery).onClick(() => this.openModal("recovery")));
-		}
-
-		new Setting(containerEl).setName(t.lockOnStartup).addToggle((c) =>
-			c.setValue(s.lockOnStartup).onChange(async (v) => {
-				s.lockOnStartup = v;
-				await save();
-			}),
-		);
-
-		new Setting(containerEl).setName(t.idle).addDropdown((c) => {
-			for (const m of IDLE_CHOICES) c.addOption(String(m), m === 0 ? t.idleOff : fmt(t.minutes, m));
-			c.setValue(String(s.idleMinutes)).onChange(async (v) => {
-				s.idleMinutes = Number(v);
-				await save();
-			});
+		const toggle = (key: ControlKey, name: string, desc?: string): SettingDefinition => ({ name, desc, control: { type: "toggle", key } });
+		const pick = <T extends string>(key: ControlKey, name: string, values: readonly T[], labels: Record<T, string>): SettingDefinition => {
+			const options: Record<string, string> = {};
+			for (const v of values) options[v] = labels[v];
+			return { name, control: { type: "dropdown", key, options } };
+		};
+		const slider = (key: ControlKey, name: string, min: number, max: number, step: number): SettingDefinitionControl => ({
+			name,
+			control: { type: "slider", key, min, max, step },
 		});
+		const minutes: Record<string, string> = {};
+		for (const m of IDLE_CHOICES) minutes[String(m)] = m === 0 ? t.idleOff : fmt(t.minutes, m);
+		const graces: Record<string, string> = {};
+		for (const g of GRACE_CHOICES) graces[String(g)] = g === 0 ? t.immediately : g >= 60 ? fmt(t.minutes, g / 60) : fmt(t.seconds, g);
+		const sizes: Record<string, string> = {};
+		for (const name of WINDOW_SIZE_NAMES) sizes[name] = `${WINDOW_SIZES[name].width} × ${WINDOW_SIZES[name].height}`;
 
-		new Setting(containerEl)
-			.setName(t.lockOnHide)
-			.setDesc(t.lockOnHideDesc)
-			.addToggle((c) =>
-				c.setValue(s.lockOnHide).onChange(async (v) => {
-					s.lockOnHide = v;
-					await save();
-				}),
-			);
+		return [
+			{
+				name: t.settingsInfo,
+				searchable: false,
+				render: (row) => {
+					row.setName("").setDesc(t.settingsInfo);
+				},
+			},
+			{
+				name: t.password,
+				desc: this.plugin.hasPassword ? t.passwordSet : t.passwordNotSet,
+				render: (row) => {
+					if (this.plugin.hasPassword) {
+						row.addButton((b) => b.setButtonText(t.changePassword).onClick(() => this.openModal("change")));
+						row.addButton((b) => b.setButtonText(t.removePassword).setDestructive().onClick(() => this.openModal("remove")));
+					} else {
+						row.addButton((b) => b.setButtonText(t.setPassword).setCta().onClick(() => this.openModal("set")));
+					}
+				},
+			},
+			{
+				name: t.recoveryRow,
+				desc: s().recovery ? t.recoveryOn : t.recoveryOff,
+				visible: () => this.plugin.hasPassword,
+				render: (row) => {
+					row.addButton((b) => b.setButtonText(s().recovery ? t.renewRecovery : t.makeRecovery).onClick(() => this.openModal("recovery")));
+				},
+			},
+			toggle("lockOnStartup", t.lockOnStartup),
+			{ name: t.idle, control: { type: "dropdown", key: "idleMinutes", options: minutes } },
+			toggle("lockOnHide", t.lockOnHide, t.lockOnHideDesc),
+			{ name: t.grace, desc: t.graceDesc, control: { type: "dropdown", key: "graceSeconds", options: graces } },
+			toggle("coverOnBlur", t.coverOnBlur, t.coverOnBlurDesc),
+			{ ...toggle("lockOnSystemLock", t.lockOnSystemLock, t.lockOnSystemLockDesc), visible: () => Platform.isDesktopApp },
+			toggle("deviceOnly", t.deviceOnly, t.deviceOnlyDesc),
 
-		new Setting(containerEl)
-			.setName(t.grace)
-			.setDesc(t.graceDesc)
-			.addDropdown((c) => {
-				for (const g of GRACE_CHOICES) {
-					c.addOption(String(g), g === 0 ? t.immediately : g >= 60 ? fmt(t.minutes, g / 60) : fmt(t.seconds, g));
-				}
-				c.setValue(String(s.graceSeconds)).onChange(async (v) => {
-					s.graceSeconds = Number(v);
-					await save();
-				});
-			});
-
-		new Setting(containerEl)
-			.setName(t.coverOnBlur)
-			.setDesc(t.coverOnBlurDesc)
-			.addToggle((c) =>
-				c.setValue(s.coverOnBlur).onChange(async (v) => {
-					s.coverOnBlur = v;
-					await save();
-				}),
-			);
-
-		if (Platform.isDesktopApp) {
-			new Setting(containerEl)
-				.setName(t.lockOnSystemLock)
-				.setDesc(t.lockOnSystemLockDesc)
-				.addToggle((c) =>
-					c.setValue(s.lockOnSystemLock).onChange(async (v) => {
-						s.lockOnSystemLock = v;
-						await save();
-						this.plugin.refreshSystemLock();
+			{
+				type: "group",
+				heading: t.appearance,
+				items: [
+					{
+						name: t.preview,
+						desc: t.previewDesc,
+						render: (row) => {
+							row.addButton((b) =>
+								b.setButtonText(t.preview).onClick(() => {
+									// On desktop the settings window sits on top; close it so the preview is visible.
+									try {
+										(this.app as unknown as { setting?: { close?: () => void } }).setting?.close?.();
+									} catch {
+										/* not available on this version */
+									}
+									this.plugin.previewLock();
+								}),
+							);
+						},
+					},
+					{ ...toggle("shrinkOnLock", t.shrinkWindow, t.shrinkWindowDesc), visible: () => windowResizeSupported() },
+					// The size only matters when shrinking is on, so the row stays disabled until then.
+					{
+						name: t.lockWindowSize,
+						visible: () => windowResizeSupported(),
+						control: { type: "dropdown", key: "lockWindowSize", options: sizes, disabled: () => !s().shrinkOnLock },
+					},
+					pick("theme", t.theme, THEMES, {
+						default: t.themeDefault,
+						win95: t.themeWin95,
+						terminal: t.themeTerminal,
+						"gameboy-snake": t.themeSnake,
+						"neon-breakout": t.themeBreakout,
+						"folder-runner": t.themeRunner,
 					}),
-				);
-		}
-
-		new Setting(containerEl)
-			.setName(t.deviceOnly)
-			.setDesc(t.deviceOnlyDesc)
-			.addToggle((c) =>
-				c.setValue(this.plugin.deviceOnly).onChange(async (v) => {
-					await this.plugin.setDeviceOnly(v);
-					this.display(); // values on screen may have changed
-				}),
-			);
-
-		this.displayAppearance(containerEl, t, s, save);
-		this.displayLog(containerEl, t);
+				],
+			},
+			{
+				type: "group",
+				heading: t.secBackground,
+				items: [
+					pick("backgroundKind", t.bgKind, BACKGROUND_KINDS, { none: t.bgKindNone, image: t.bgKindImage, video: t.bgKindVideo }),
+					{
+						name: t.bgImage,
+						desc: t.bgImageDesc,
+						visible: () => s().backgroundKind === "image",
+						render: (row) => this.imageRow(row),
+					},
+					{
+						name: t.bgVideo,
+						desc: t.bgVideoDesc,
+						visible: () => s().backgroundKind === "video",
+						render: (row) => this.videoRow(row),
+					},
+					{ ...slider("dim", t.dim, 0, 80, 5), visible: () => s().backgroundKind !== "none" },
+					{ ...slider("blur", t.blur, 0, 20, 1), visible: () => s().backgroundKind !== "none" },
+					pick("animation", t.animation, ANIMATIONS, {
+						none: t.animNone,
+						aurora: t.animAurora,
+						fireflies: t.animFireflies,
+						snow: t.animSnow,
+						glow: t.animGlow,
+						trail: t.animTrail,
+						orbs: t.animOrbs,
+					}),
+				],
+			},
+			{
+				type: "group",
+				heading: t.secText,
+				items: [
+					{ name: t.textColor, render: (row) => this.colorRow(row, "textColor", "#ffffff") },
+					{ name: t.accentColor, render: (row) => this.colorRow(row, "accentColor", "#7c5cd6") },
+					slider("clockScale", t.clockSize, 60, 160, 5),
+					pick("clockFont", t.clockFont, FONT_STYLES, {
+						auto: t.themeAuto,
+						sans: t.fontSans,
+						serif: t.fontSerif,
+						mono: t.fontMono,
+						rounded: t.fontRounded,
+					}),
+					// The weight only applies to a chosen font; with "theme default" the theme's own typography is used.
+					{
+						name: t.clockWeight,
+						control: { type: "slider", key: "clockWeight", min: 100, max: 700, step: 100, disabled: () => s().clockFont === "auto" },
+					},
+					{
+						name: t.customTitle,
+						desc: t.customTitleDesc,
+						render: (row) => {
+							row.addText((c) =>
+								c
+									.setPlaceholder(t.lockedTitle)
+									.setValue(s().customTitle)
+									.then((tc) => (tc.inputEl.maxLength = 60)) // counts UTF-16 units, so it can only err on the short side
+									.onChange(async (v) => {
+										s().customTitle = clipChars(v.trim(), 60);
+										await this.plugin.saveSettings();
+									}),
+							);
+						},
+					},
+					pick("titleMode", t.showTitle, TITLE_MODES, { auto: t.titleAuto, show: t.titleShow, hide: t.titleHide }),
+				],
+			},
+			{
+				type: "group",
+				heading: t.secLayout,
+				items: [
+					pick("position", t.position, POSITIONS, { top: t.posTop, center: t.posCenter, bottom: t.posBottom }),
+					pick("fieldShape", t.fieldShape, FIELD_SHAPES, {
+						auto: t.themeAuto,
+						rounded: t.shapeRounded,
+						pill: t.shapePill,
+						square: t.shapeSquare,
+					}),
+					toggle("showIcon", t.showIcon),
+					toggle("hoverReveal", t.hoverReveal, t.hoverRevealDesc),
+				],
+			},
+			{
+				type: "group",
+				heading: t.secWidgets,
+				items: [
+					toggle("showClock", t.showClock),
+					toggle("showSeconds", t.showSeconds),
+					toggle("showDate", t.showDate),
+					pick("clockFormat", t.clockFormat, CLOCK_FORMATS, { auto: t.fmtAuto, "24": t.fmt24, "12": t.fmt12 }),
+					toggle("showTodos", t.showTodos, t.showTodosDesc),
+					{
+						name: t.resetAppearance,
+						desc: t.resetAppearanceDesc,
+						render: (row) => {
+							row.addButton((b) =>
+								b
+									.setButtonText(t.resetAppearanceBtn)
+									.setDestructive()
+									.onClick(async () => {
+										const target = this.plugin.settings as unknown as Record<string, unknown>;
+										for (const key of APPEARANCE_KEYS) target[key] = DEFAULTS[key];
+										await this.plugin.saveSettings();
+										this.update();
+									}),
+							);
+						},
+					},
+				],
+			},
+			{ name: t.logTitle, desc: t.logDesc, render: (row) => this.logRow(row) },
+		];
 	}
 
-	private displayLog(containerEl: HTMLElement, t: Strings): void {
+	getControlValue(key: string): unknown {
+		if (key === "deviceOnly") return this.plugin.deviceOnly;
+		const value = (this.plugin.settings as unknown as Record<string, unknown>)[key];
+		// dropdown values are strings; these two are stored as numbers
+		return key === "idleMinutes" || key === "graceSeconds" ? String(value) : value;
+	}
+
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key === "deviceOnly") {
+			await this.plugin.setDeviceOnly(value === true);
+			this.update(); // values on screen may have changed
+			return;
+		}
+		const numeric = key === "idleMinutes" || key === "graceSeconds";
+		(this.plugin.settings as unknown as Record<string, unknown>)[key] = numeric ? Number(value) : value;
+		await this.plugin.saveSettings();
+		if (key === "lockOnSystemLock") this.plugin.refreshSystemLock();
+		// other rows appear, disappear or get enabled depending on these
+		if (key === "backgroundKind" || key === "shrinkOnLock" || key === "clockFont") this.update();
+	}
+
+	private imageRow(row: Setting): void {
+		const t = this.plugin.t;
 		const s = this.plugin.settings;
-		new Setting(containerEl).setName(t.logTitle).setHeading();
-		const row = new Setting(containerEl).setDesc(t.logDesc);
+		if (s.hasBackground) {
+			const thumb = row.controlEl.createEl("img", { cls: "vault-lock-thumb" });
+			thumb.src = this.plugin.app.vault.adapter.getResourcePath(this.plugin.imagePath);
+			thumb.alt = "";
+		}
+		row.addButton((b) =>
+			b.setButtonText(t.chooseImage).onClick(async () => {
+				try {
+					if (!(await chooseBackground(this.app, this.plugin.pluginDir, row.settingEl.ownerDocument))) return;
+					s.hasBackground = true;
+					await this.plugin.saveSettings();
+					this.update();
+				} catch {
+					new Notice(t.imageFailed);
+				}
+			}),
+		);
+		if (s.hasBackground) {
+			row.addButton((b) =>
+				b.setButtonText(t.removeImage).onClick(async () => {
+					await removeBackground(this.app, this.plugin.pluginDir);
+					s.hasBackground = false;
+					await this.plugin.saveSettings();
+					this.update();
+				}),
+			);
+		}
+	}
+
+	private videoRow(row: Setting): void {
+		const t = this.plugin.t;
+		const s = this.plugin.settings;
+		row.addButton((b) =>
+			b.setButtonText(t.chooseVideo).onClick(async () => {
+				try {
+					const ext = await chooseVideo(this.app, this.plugin.pluginDir, row.settingEl.ownerDocument);
+					if (!ext) return;
+					s.hasVideo = true;
+					s.videoExt = ext;
+					await this.plugin.saveSettings();
+					this.update();
+				} catch {
+					new Notice(t.videoFailed);
+				}
+			}),
+		);
+		if (s.hasVideo) {
+			row.addButton((b) =>
+				b.setButtonText(t.removeImage).onClick(async () => {
+					await removeVideo(this.app, this.plugin.pluginDir);
+					s.hasVideo = false;
+					await this.plugin.saveSettings();
+					this.update();
+				}),
+			);
+		}
+	}
+
+	private colorRow(row: Setting, key: "textColor" | "accentColor", fallback: string): void {
+		const t = this.plugin.t;
+		const s = this.plugin.settings;
+		row.setDesc(s[key] || t.colorAuto);
+		row.addColorPicker((c) =>
+			c.setValue(s[key] || fallback).onChange(async (v) => {
+				s[key] = cleanHex(v);
+				row.setDesc(s[key] || t.colorAuto);
+				await this.plugin.saveSettings();
+			}),
+		);
+		row.addExtraButton((b) =>
+			b
+				.setIcon("rotate-ccw")
+				.setTooltip(t.resetColor)
+				.onClick(async () => {
+					s[key] = "";
+					await this.plugin.saveSettings();
+					this.update();
+				}),
+		);
+	}
+
+	/** The activity log: a clear button and the entries, newest first, under the description. */
+	private logRow(row: Setting): void {
+		const t = this.plugin.t;
+		const s = this.plugin.settings;
 		row.addButton((b) =>
 			b.setButtonText(t.logClear).onClick(async () => {
-				s.log = [];
+				this.plugin.settings.log = [];
 				await this.plugin.saveSettings();
-				this.display();
+				this.update();
 			}),
 		);
 		if (s.log.length === 0) {
-			containerEl.createEl("p", { text: t.logEmpty, cls: "setting-item-description" });
+			row.descEl.createEl("p", { text: t.logEmpty });
 			return;
 		}
-		const list = containerEl.createEl("ul", { cls: "vault-lock-log" });
+		const list = row.descEl.createEl("ul", { cls: "vault-lock-log" });
 		const reasons: Record<LockReason, string> = {
 			startup: t.reasonStartup,
 			idle: t.reasonIdle,
@@ -843,312 +1070,13 @@ class VaultLockSettingTab extends PluginSettingTab {
 		}
 	}
 
-	private displayAppearance(containerEl: HTMLElement, t: Strings, s: Settings, save: () => Promise<void>): void {
-		const doc = containerEl.ownerDocument;
-		const heading = (name: string) => new Setting(containerEl).setName(name).setHeading();
-		const redraw = () => this.display();
-
-		const toggle = (name: string, get: () => boolean, set: (v: boolean) => void, desc?: string) => {
-			const row = new Setting(containerEl).setName(name);
-			if (desc) row.setDesc(desc);
-			row.addToggle((c) =>
-				c.setValue(get()).onChange(async (v) => {
-					set(v);
-					await save();
-				}),
-			);
-		};
-		const choice = <T extends string>(name: string, values: readonly T[], labels: Record<T, string>, get: () => T, set: (v: T) => void, after?: () => void) => {
-			new Setting(containerEl).setName(name).addDropdown((c) => {
-				for (const v of values) c.addOption(v, labels[v]);
-				c.setValue(get()).onChange(async (v) => {
-					set(oneOf(v, values, values[0]));
-					await save();
-					after?.();
-				});
-			});
-		};
-		const slide = (name: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void): Setting => {
-			return new Setting(containerEl).setName(name).addSlider((c) =>
-				c
-					.setLimits(min, max, step)
-					.setValue(get())
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						set(v);
-						await save();
-					}),
-			);
-		};
-		const color = (name: string, key: "textColor" | "accentColor", fallback: string) => {
-			const row = new Setting(containerEl).setName(name).setDesc(s[key] || t.colorAuto);
-			row.addColorPicker((c) =>
-				c.setValue(s[key] || fallback).onChange(async (v) => {
-					s[key] = cleanHex(v);
-					row.setDesc(s[key] || t.colorAuto);
-					await save();
-				}),
-			);
-			row.addExtraButton((b) =>
-				b
-					.setIcon("rotate-ccw")
-					.setTooltip(t.resetColor)
-					.onClick(async () => {
-						s[key] = "";
-						await save();
-						redraw();
-					}),
-			);
-		};
-
-		new Setting(containerEl).setName(t.appearance).setHeading();
-
-		new Setting(containerEl)
-			.setName(t.preview)
-			.setDesc(t.previewDesc)
-			.addButton((b) =>
-				b.setButtonText(t.preview).onClick(() => {
-					// On desktop the settings window sits on top; close it so the preview is visible.
-					try {
-						(this.app as unknown as { setting?: { close?: () => void } }).setting?.close?.();
-					} catch {
-						/* not available on this version */
-					}
-					this.plugin.previewLock();
-				}),
-			);
-
-		if (windowResizeSupported()) {
-			// The size only matters when shrinking is on, so the size row stays disabled until then.
-			// (syncSizeRow is defined below; the toggle callback only runs after the whole tab is built.)
-			new Setting(containerEl)
-				.setName(t.shrinkWindow)
-				.setDesc(t.shrinkWindowDesc)
-				.addToggle((c) =>
-					c.setValue(s.shrinkOnLock).onChange(async (v) => {
-						s.shrinkOnLock = v;
-						syncSizeRow(v);
-						await save();
-					}),
-				);
-			const sizeRow = new Setting(containerEl).setName(t.lockWindowSize).addDropdown((c) => {
-				for (const name of WINDOW_SIZE_NAMES) {
-					const z = WINDOW_SIZES[name];
-					c.addOption(name, `${z.width} × ${z.height}`);
-				}
-				c.setValue(s.lockWindowSize).onChange(async (v) => {
-					s.lockWindowSize = oneOf(v, WINDOW_SIZE_NAMES, "small");
-					await save();
-				});
-			});
-			const syncSizeRow = (enabled: boolean) => {
-				sizeRow.setDisabled(!enabled);
-				sizeRow.settingEl.toggleClass("is-disabled", !enabled);
-			};
-			syncSizeRow(s.shrinkOnLock);
-		}
-
-		choice(
-			t.theme,
-			THEMES,
-			{
-				default: t.themeDefault,
-				win95: t.themeWin95,
-				terminal: t.themeTerminal,
-				"gameboy-snake": t.themeSnake,
-				"neon-breakout": t.themeBreakout,
-				"folder-runner": t.themeRunner,
-			},
-			() => s.theme,
-			(v) => (s.theme = v),
-		);
-
-		// ---- background ----
-		heading(t.secBackground);
-		choice(
-			t.bgKind,
-			BACKGROUND_KINDS,
-			{ none: t.bgKindNone, image: t.bgKindImage, video: t.bgKindVideo },
-			() => s.backgroundKind,
-			(v) => (s.backgroundKind = v),
-			redraw,
-		);
-
-		if (s.backgroundKind === "image") {
-			const row = new Setting(containerEl).setName(t.bgImage).setDesc(t.bgImageDesc);
-			if (s.hasBackground) {
-				const thumb = row.controlEl.createEl("img", { cls: "vault-lock-thumb" });
-				thumb.src = this.plugin.app.vault.adapter.getResourcePath(this.plugin.imagePath);
-				thumb.alt = "";
-			}
-			row.addButton((b) =>
-				b.setButtonText(t.chooseImage).onClick(async () => {
-					try {
-						if (!(await chooseBackground(this.app, this.plugin.pluginDir, doc))) return;
-						s.hasBackground = true;
-						await save();
-						redraw();
-					} catch {
-						new Notice(t.imageFailed);
-					}
-				}),
-			);
-			if (s.hasBackground) {
-				row.addButton((b) =>
-					b.setButtonText(t.removeImage).onClick(async () => {
-						await removeBackground(this.app, this.plugin.pluginDir);
-						s.hasBackground = false;
-						await save();
-						redraw();
-					}),
-				);
-			}
-		}
-
-		if (s.backgroundKind === "video") {
-			const row = new Setting(containerEl).setName(t.bgVideo).setDesc(t.bgVideoDesc);
-			row.addButton((b) =>
-				b.setButtonText(t.chooseVideo).onClick(async () => {
-					try {
-						const ext = await chooseVideo(this.app, this.plugin.pluginDir, doc);
-						if (!ext) return;
-						s.hasVideo = true;
-						s.videoExt = ext;
-						await save();
-						redraw();
-					} catch {
-						new Notice(t.videoFailed);
-					}
-				}),
-			);
-			if (s.hasVideo) {
-				row.addButton((b) =>
-					b.setButtonText(t.removeImage).onClick(async () => {
-						await removeVideo(this.app, this.plugin.pluginDir);
-						s.hasVideo = false;
-						await save();
-						redraw();
-					}),
-				);
-			}
-		}
-
-		if (s.backgroundKind !== "none") {
-			slide(t.dim, 0, 80, 5, () => s.dim, (v) => (s.dim = v));
-			slide(t.blur, 0, 20, 1, () => s.blur, (v) => (s.blur = v));
-		}
-
-		choice(
-			t.animation,
-			ANIMATIONS,
-			{
-				none: t.animNone,
-				aurora: t.animAurora,
-				fireflies: t.animFireflies,
-				snow: t.animSnow,
-				glow: t.animGlow,
-				trail: t.animTrail,
-				orbs: t.animOrbs,
-			},
-			() => s.animation,
-			(v) => (s.animation = v),
-		);
-
-		// ---- text & colors ----
-		heading(t.secText);
-		color(t.textColor, "textColor", "#ffffff");
-		color(t.accentColor, "accentColor", "#7c5cd6");
-		slide(t.clockSize, 60, 160, 5, () => s.clockScale, (v) => (s.clockScale = v));
-		// The weight only applies to a chosen font; with "theme default" the theme's own typography is used.
-		choice(
-			t.clockFont,
-			FONT_STYLES,
-			{ auto: t.themeAuto, sans: t.fontSans, serif: t.fontSerif, mono: t.fontMono, rounded: t.fontRounded },
-			() => s.clockFont,
-			(v) => (s.clockFont = v),
-			() => syncWeightRow(),
-		);
-		const weightRow = slide(t.clockWeight, 100, 700, 100, () => s.clockWeight, (v) => (s.clockWeight = v));
-		const syncWeightRow = () => {
-			weightRow.setDisabled(s.clockFont === "auto");
-			weightRow.settingEl.toggleClass("is-disabled", s.clockFont === "auto");
-		};
-		syncWeightRow();
-
-		new Setting(containerEl)
-			.setName(t.customTitle)
-			.setDesc(t.customTitleDesc)
-			.addText((c) =>
-				c
-					.setPlaceholder(t.lockedTitle)
-					.setValue(s.customTitle)
-					.then((tc) => (tc.inputEl.maxLength = 60)) // counts UTF-16 units, so it can only err on the short side
-					.onChange(async (v) => {
-						s.customTitle = clipChars(v.trim(), 60);
-						await save();
-					}),
-			);
-		choice(
-			t.showTitle,
-			TITLE_MODES,
-			{ auto: t.titleAuto, show: t.titleShow, hide: t.titleHide },
-			() => s.titleMode,
-			(v) => (s.titleMode = v),
-		);
-
-		// ---- layout & shape ----
-		heading(t.secLayout);
-		choice(
-			t.position,
-			POSITIONS,
-			{ top: t.posTop, center: t.posCenter, bottom: t.posBottom },
-			() => s.position,
-			(v) => (s.position = v),
-		);
-		choice(
-			t.fieldShape,
-			FIELD_SHAPES,
-			{ auto: t.themeAuto, rounded: t.shapeRounded, pill: t.shapePill, square: t.shapeSquare },
-			() => s.fieldShape,
-			(v) => (s.fieldShape = v),
-		);
-		toggle(t.showIcon, () => s.showIcon, (v) => (s.showIcon = v));
-		toggle(t.hoverReveal, () => s.hoverReveal, (v) => (s.hoverReveal = v), t.hoverRevealDesc);
-
-		// ---- widgets ----
-		heading(t.secWidgets);
-		toggle(t.showClock, () => s.showClock, (v) => (s.showClock = v));
-		toggle(t.showSeconds, () => s.showSeconds, (v) => (s.showSeconds = v));
-		toggle(t.showDate, () => s.showDate, (v) => (s.showDate = v));
-		choice(
-			t.clockFormat,
-			CLOCK_FORMATS,
-			{ auto: t.fmtAuto, "24": t.fmt24, "12": t.fmt12 },
-			() => s.clockFormat,
-			(v) => (s.clockFormat = v),
-		);
-		toggle(t.showTodos, () => s.showTodos, (v) => (s.showTodos = v), t.showTodosDesc);
-
-		// ---- reset ----
-		new Setting(containerEl)
-			.setName(t.resetAppearance)
-			.setDesc(t.resetAppearanceDesc)
-			.addButton((b) =>
-				b
-					.setButtonText(t.resetAppearanceBtn)
-					.setWarning()
-					.onClick(async () => {
-						for (const key of APPEARANCE_KEYS) (s as unknown as Record<string, unknown>)[key] = DEFAULTS[key];
-						await save();
-						redraw();
-					}),
-			);
-	}
-
 	private openModal(mode: PasswordMode): void {
-		new PasswordModal(this.app, this.plugin, mode, () => this.display()).open();
+		new PasswordModal(this.app, this.plugin, mode, () => this.update()).open();
 	}
 }
+
+/** Keys the declarative controls read and write: stored settings, plus the per-device switch. */
+type ControlKey = keyof Settings | "deviceOnly";
 
 /**
  * set: first password. change/remove/recovery: ask the current password first.
@@ -1299,18 +1227,7 @@ class RecoveryKeyModal extends Modal {
 		this.setTitle(t.recoveryKeyTitle);
 		contentEl.createEl("p", { text: t.recoveryKeyIntro });
 		contentEl.createEl("code", { text: this.key ?? "", cls: "vault-lock-recovery-key" });
-		new Setting(contentEl)
-			.addButton((b) =>
-				b.setButtonText(t.copyKey).onClick(async () => {
-					try {
-						await navigator.clipboard.writeText(this.key ?? "");
-						new Notice(t.copied);
-					} catch {
-						/* clipboard blocked: the key is on screen to write down */
-					}
-				}),
-			)
-			.addButton((b) => b.setButtonText(t.keySaved).setCta().onClick(() => this.close()));
+		new Setting(contentEl).addButton((b) => b.setButtonText(t.keySaved).setCta().onClick(() => this.close()));
 	}
 
 	onClose(): void {

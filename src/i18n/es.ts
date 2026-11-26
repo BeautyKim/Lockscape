@@ -139,8 +139,6 @@ const es: Strings = {
 	resetIntro: "Has desbloqueado con la clave de recuperación. Elige ahora una contraseña nueva. También recibirás una clave de recuperación nueva.",
 	recoveryKeyTitle: "Tu clave de recuperación",
 	recoveryKeyIntro: "Anota esta clave y guárdala en un lugar seguro, lejos de este equipo. Solo se muestra una vez y no se puede consultar después. Si olvidas la contraseña, desbloquea la pantalla. Cualquiera que la tenga puede desbloquear la pantalla.",
-	copyKey: "Copiar",
-	copied: "Copiada.",
 	keySaved: "Ya la guardé",
 	recoveryRow: "Clave de recuperación",
 	recoveryOn: "Establecida. Úsala en “¿Olvidaste la contraseña?” de la pantalla de bloqueo.",

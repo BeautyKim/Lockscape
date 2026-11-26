@@ -41,7 +41,7 @@ function videoPath(pluginDir, ext) {
 }
 function pickFile(doc, accept) {
   return new Promise((resolve) => {
-    const input = doc.createElement("input");
+    const input = createEl("input");
     input.type = "file";
     input.accept = accept;
     input.hidden = true;
@@ -62,7 +62,7 @@ async function toJpeg(file, win) {
     const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
     const w = Math.max(1, Math.round(bitmap.width * scale));
     const h = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = win.document.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
@@ -91,7 +91,7 @@ async function removeBackground(app, pluginDir) {
 async function verifyPlayable(file, doc) {
   const url = URL.createObjectURL(file);
   try {
-    const video = doc.createElement("video");
+    const video = createEl("video");
     video.muted = true;
     video.preload = "metadata";
     await new Promise((resolve, reject) => {
@@ -180,7 +180,7 @@ function cleanHex(v) {
 }
 function resolveColor(doc, css) {
   try {
-    const canvas = doc.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = canvas.height = 1;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
@@ -477,8 +477,6 @@ var en = {
   resetIntro: "You unlocked with your recovery key. Choose a new password now. You will get a new recovery key too.",
   recoveryKeyTitle: "Your recovery key",
   recoveryKeyIntro: "Write this key down and keep it somewhere safe, away from this computer. It is shown only once and cannot be looked up later. If you forget your password, it unlocks the screen. Anyone who has it can unlock the screen.",
-  copyKey: "Copy",
-  copied: "Copied.",
   keySaved: "I saved it",
   recoveryRow: "Recovery key",
   recoveryOn: "Set. Use \u201CForgot your password?\u201D on the lock screen.",
@@ -644,8 +642,6 @@ var ko = {
   resetIntro: "\uBCF5\uAD6C \uD0A4\uB85C \uC7A0\uAE08\uC744 \uD480\uC5C8\uC2B5\uB2C8\uB2E4. \uC9C0\uAE08 \uC0C8 \uBE44\uBC00\uBC88\uD638\uB97C \uC815\uD558\uC138\uC694. \uC0C8 \uBCF5\uAD6C \uD0A4\uB3C4 \uD568\uAED8 \uBC1C\uAE09\uB429\uB2C8\uB2E4.",
   recoveryKeyTitle: "\uBCF5\uAD6C \uD0A4",
   recoveryKeyIntro: "\uC774 \uD0A4\uB97C \uC801\uC5B4\uC11C \uC774 \uCEF4\uD4E8\uD130\uC640 \uB5A8\uC5B4\uC9C4 \uC548\uC804\uD55C \uACF3\uC5D0 \uBCF4\uAD00\uD558\uC138\uC694. \uD55C \uBC88\uB9CC \uBCF4\uC5EC \uC8FC\uBA70 \uB098\uC911\uC5D0 \uB2E4\uC2DC \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBE44\uBC00\uBC88\uD638\uB97C \uC78A\uC73C\uBA74 \uC774 \uD0A4\uB85C \uD654\uBA74\uC744 \uD480 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC774 \uD0A4\uB97C \uAC00\uC9C4 \uC0AC\uB78C\uC740 \uB204\uAD6C\uB098 \uD654\uBA74\uC744 \uD480 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
-  copyKey: "\uBCF5\uC0AC",
-  copied: "\uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.",
   keySaved: "\uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4",
   recoveryRow: "\uBCF5\uAD6C \uD0A4",
   recoveryOn: '\uC124\uC815\uB428. \uC7A0\uAE08 \uD654\uBA74\uC758 "\uBE44\uBC00\uBC88\uD638\uB97C \uC78A\uC73C\uC168\uB098\uC694?"\uC5D0\uC11C \uC501\uB2C8\uB2E4.',
@@ -811,8 +807,6 @@ var ja = {
   resetIntro: "\u5FA9\u65E7\u30AD\u30FC\u3067\u30ED\u30C3\u30AF\u3092\u89E3\u9664\u3057\u307E\u3057\u305F\u3002\u4ECA\u3059\u3050\u65B0\u3057\u3044\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u6C7A\u3081\u3066\u304F\u3060\u3055\u3044\u3002\u65B0\u3057\u3044\u5FA9\u65E7\u30AD\u30FC\u3082\u767A\u884C\u3055\u308C\u307E\u3059\u3002",
   recoveryKeyTitle: "\u5FA9\u65E7\u30AD\u30FC",
   recoveryKeyIntro: "\u3053\u306E\u30AD\u30FC\u3092\u66F8\u304D\u7559\u3081\u3066\u3001\u3053\u306E\u30B3\u30F3\u30D4\u30E5\u30FC\u30BF\u30FC\u304B\u3089\u96E2\u308C\u305F\u5B89\u5168\u306A\u5834\u6240\u306B\u4FDD\u7BA1\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u8868\u793A\u306F\u4E00\u5EA6\u304D\u308A\u3067\u3001\u5F8C\u304B\u3089\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3002\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u5FD8\u308C\u305F\u3068\u304D\u306B\u3053\u306E\u30AD\u30FC\u3067\u753B\u9762\u3092\u89E3\u9664\u3067\u304D\u307E\u3059\u3002\u3053\u306E\u30AD\u30FC\u3092\u6301\u3064\u4EBA\u306F\u8AB0\u3067\u3082\u753B\u9762\u3092\u89E3\u9664\u3067\u304D\u307E\u3059\u3002",
-  copyKey: "\u30B3\u30D4\u30FC",
-  copied: "\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F\u3002",
   keySaved: "\u4FDD\u5B58\u3057\u307E\u3057\u305F",
   recoveryRow: "\u5FA9\u65E7\u30AD\u30FC",
   recoveryOn: "\u8A2D\u5B9A\u6E08\u307F\u3002\u30ED\u30C3\u30AF\u753B\u9762\u306E\u300C\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u5FD8\u308C\u307E\u3057\u305F\u304B?\u300D\u304B\u3089\u4F7F\u3044\u307E\u3059\u3002",
@@ -978,8 +972,6 @@ var zh = {
   resetIntro: "\u4F60\u5DF2\u7528\u6062\u590D\u5BC6\u94A5\u89E3\u9501\u3002\u8BF7\u73B0\u5728\u8BBE\u7F6E\u65B0\u5BC6\u7801,\u540C\u65F6\u4F1A\u751F\u6210\u65B0\u7684\u6062\u590D\u5BC6\u94A5\u3002",
   recoveryKeyTitle: "\u4F60\u7684\u6062\u590D\u5BC6\u94A5",
   recoveryKeyIntro: "\u8BF7\u6284\u4E0B\u8FD9\u4E2A\u5BC6\u94A5,\u4FDD\u5B58\u5728\u8FDC\u79BB\u8FD9\u53F0\u7535\u8111\u7684\u5B89\u5168\u5730\u65B9\u3002\u5B83\u53EA\u663E\u793A\u4E00\u6B21,\u4E4B\u540E\u65E0\u6CD5\u518D\u67E5\u770B\u3002\u5FD8\u8BB0\u5BC6\u7801\u65F6\u53EF\u7528\u5B83\u89E3\u9501\u5C4F\u5E55\u3002\u4EFB\u4F55\u62FF\u5230\u5B83\u7684\u4EBA\u90FD\u80FD\u89E3\u9501\u5C4F\u5E55\u3002",
-  copyKey: "\u590D\u5236",
-  copied: "\u5DF2\u590D\u5236\u3002",
   keySaved: "\u6211\u5DF2\u4FDD\u5B58",
   recoveryRow: "\u6062\u590D\u5BC6\u94A5",
   recoveryOn: "\u5DF2\u8BBE\u7F6E\u3002\u5728\u9501\u5C4F\u754C\u9762\u70B9\u51FB\u201C\u5FD8\u8BB0\u5BC6\u7801?\u201D\u4F7F\u7528\u3002",
@@ -1145,8 +1137,6 @@ var zhTW = {
   resetIntro: "\u4F60\u5DF2\u7528\u5FA9\u539F\u91D1\u9470\u89E3\u9396\u3002\u8ACB\u73FE\u5728\u8A2D\u5B9A\u65B0\u5BC6\u78BC,\u540C\u6642\u6703\u7522\u751F\u65B0\u7684\u5FA9\u539F\u91D1\u9470\u3002",
   recoveryKeyTitle: "\u4F60\u7684\u5FA9\u539F\u91D1\u9470",
   recoveryKeyIntro: "\u8ACB\u6284\u4E0B\u9019\u500B\u91D1\u9470,\u4FDD\u5B58\u5728\u9060\u96E2\u9019\u53F0\u96FB\u8166\u7684\u5B89\u5168\u5730\u65B9\u3002\u5B83\u53EA\u986F\u793A\u4E00\u6B21,\u4E4B\u5F8C\u7121\u6CD5\u518D\u67E5\u770B\u3002\u5FD8\u8A18\u5BC6\u78BC\u6642\u53EF\u7528\u5B83\u89E3\u9396\u87A2\u5E55\u3002\u4EFB\u4F55\u62FF\u5230\u5B83\u7684\u4EBA\u90FD\u80FD\u89E3\u9396\u87A2\u5E55\u3002",
-  copyKey: "\u8907\u88FD",
-  copied: "\u5DF2\u8907\u88FD\u3002",
   keySaved: "\u6211\u5DF2\u5132\u5B58",
   recoveryRow: "\u5FA9\u539F\u91D1\u9470",
   recoveryOn: "\u5DF2\u8A2D\u5B9A\u3002\u5728\u9396\u5B9A\u756B\u9762\u9EDE\u9078\u300C\u5FD8\u8A18\u5BC6\u78BC?\u300D\u4F7F\u7528\u3002",
@@ -1312,8 +1302,6 @@ var es = {
   resetIntro: "Has desbloqueado con la clave de recuperaci\xF3n. Elige ahora una contrase\xF1a nueva. Tambi\xE9n recibir\xE1s una clave de recuperaci\xF3n nueva.",
   recoveryKeyTitle: "Tu clave de recuperaci\xF3n",
   recoveryKeyIntro: "Anota esta clave y gu\xE1rdala en un lugar seguro, lejos de este equipo. Solo se muestra una vez y no se puede consultar despu\xE9s. Si olvidas la contrase\xF1a, desbloquea la pantalla. Cualquiera que la tenga puede desbloquear la pantalla.",
-  copyKey: "Copiar",
-  copied: "Copiada.",
   keySaved: "Ya la guard\xE9",
   recoveryRow: "Clave de recuperaci\xF3n",
   recoveryOn: "Establecida. \xDAsala en \u201C\xBFOlvidaste la contrase\xF1a?\u201D de la pantalla de bloqueo.",
@@ -1479,8 +1467,6 @@ var fr = {
   resetIntro: "Vous avez d\xE9verrouill\xE9 avec la cl\xE9 de r\xE9cup\xE9ration. Choisissez maintenant un nouveau mot de passe. Vous recevrez aussi une nouvelle cl\xE9 de r\xE9cup\xE9ration.",
   recoveryKeyTitle: "Votre cl\xE9 de r\xE9cup\xE9ration",
   recoveryKeyIntro: "Notez cette cl\xE9 et gardez-la en lieu s\xFBr, loin de cet ordinateur. Elle n\u2019est affich\xE9e qu\u2019une fois et ne pourra plus \xEAtre consult\xE9e. Si vous oubliez le mot de passe, elle d\xE9verrouille l\u2019\xE9cran. Quiconque la poss\xE8de peut d\xE9verrouiller l\u2019\xE9cran.",
-  copyKey: "Copier",
-  copied: "Copi\xE9e.",
   keySaved: "Je l\u2019ai enregistr\xE9e",
   recoveryRow: "Cl\xE9 de r\xE9cup\xE9ration",
   recoveryOn: "D\xE9finie. Utilisez \xAB Mot de passe oubli\xE9 ? \xBB sur l\u2019\xE9cran de verrouillage.",
@@ -1646,8 +1632,6 @@ var de = {
   resetIntro: "Du hast mit dem Wiederherstellungsschl\xFCssel entsperrt. Lege jetzt ein neues Passwort fest. Du erh\xE4ltst auch einen neuen Wiederherstellungsschl\xFCssel.",
   recoveryKeyTitle: "Dein Wiederherstellungsschl\xFCssel",
   recoveryKeyIntro: "Schreibe diesen Schl\xFCssel auf und bewahre ihn sicher auf, weit weg von diesem Computer. Er wird nur einmal angezeigt und l\xE4sst sich sp\xE4ter nicht mehr abrufen. Wenn du das Passwort vergisst, entsperrt er den Bildschirm. Jeder, der ihn hat, kann den Bildschirm entsperren.",
-  copyKey: "Kopieren",
-  copied: "Kopiert.",
   keySaved: "Ich habe ihn gespeichert",
   recoveryRow: "Wiederherstellungsschl\xFCssel",
   recoveryOn: "Festgelegt. Verwende \u201EPasswort vergessen?\u201C auf dem Sperrbildschirm.",
@@ -1813,8 +1797,6 @@ var pt = {
   resetIntro: "Voc\xEA desbloqueou com a chave de recupera\xE7\xE3o. Escolha agora uma nova senha. Voc\xEA tamb\xE9m receber\xE1 uma nova chave de recupera\xE7\xE3o.",
   recoveryKeyTitle: "Sua chave de recupera\xE7\xE3o",
   recoveryKeyIntro: "Anote esta chave e guarde-a em um lugar seguro, longe deste computador. Ela \xE9 mostrada s\xF3 uma vez e n\xE3o pode ser consultada depois. Se voc\xEA esquecer a senha, ela desbloqueia a tela. Qualquer pessoa que a tenha pode desbloquear a tela.",
-  copyKey: "Copiar",
-  copied: "Copiada.",
   keySaved: "J\xE1 guardei",
   recoveryRow: "Chave de recupera\xE7\xE3o",
   recoveryOn: "Definida. Use \u201CEsqueceu a senha?\u201D na tela de bloqueio.",
@@ -1980,8 +1962,6 @@ var ru = {
   resetIntro: "\u0412\u044B \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043B\u0438 \u044D\u043A\u0440\u0430\u043D \u043A\u043B\u044E\u0447\u043E\u043C \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F. \u0417\u0430\u0434\u0430\u0439\u0442\u0435 \u043D\u043E\u0432\u044B\u0439 \u043F\u0430\u0440\u043E\u043B\u044C \u0441\u0435\u0439\u0447\u0430\u0441. \u0412\u044B \u0442\u0430\u043A\u0436\u0435 \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u0435 \u043D\u043E\u0432\u044B\u0439 \u043A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F.",
   recoveryKeyTitle: "\u0412\u0430\u0448 \u043A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
   recoveryKeyIntro: "\u0417\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u044D\u0442\u043E\u0442 \u043A\u043B\u044E\u0447 \u0438 \u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0432 \u043D\u0430\u0434\u0451\u0436\u043D\u043E\u043C \u043C\u0435\u0441\u0442\u0435, \u043F\u043E\u0434\u0430\u043B\u044C\u0448\u0435 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0430. \u041E\u043D \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u043F\u043E\u0442\u043E\u043C \u0435\u0433\u043E \u043D\u0435\u043B\u044C\u0437\u044F \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C. \u0415\u0441\u043B\u0438 \u0432\u044B \u0437\u0430\u0431\u0443\u0434\u0435\u0442\u0435 \u043F\u0430\u0440\u043E\u043B\u044C, \u043A\u043B\u044E\u0447 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 \u044D\u043A\u0440\u0430\u043D. \u041B\u044E\u0431\u043E\u0439, \u0443 \u043A\u043E\u0433\u043E \u0435\u0441\u0442\u044C \u043A\u043B\u044E\u0447, \u043C\u043E\u0436\u0435\u0442 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u044D\u043A\u0440\u0430\u043D.",
-  copyKey: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
-  copied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E.",
   keySaved: "\u042F \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u043B",
   recoveryRow: "\u041A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
   recoveryOn: "\u0417\u0430\u0434\u0430\u043D. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \xAB\u0417\u0430\u0431\u044B\u043B\u0438 \u043F\u0430\u0440\u043E\u043B\u044C?\xBB \u043D\u0430 \u044D\u043A\u0440\u0430\u043D\u0435 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0438.",
@@ -2240,7 +2220,7 @@ var PointerFx = class {
     // ---- simulation ---------------------------------------------------------------------------
     this.glowAlpha = 0;
     this.rgb = colors.map((c) => resolveColor(doc, c) ?? [124, 92, 214]);
-    this.canvas = doc.createElement("canvas");
+    this.canvas = createEl("canvas");
     this.canvas.className = "vault-lock-fx";
     this.canvas.setAttribute("aria-hidden", "true");
     host.append(this.canvas);
@@ -2473,8 +2453,7 @@ var LOCK_OPEN = [
 ];
 function pixelLock(doc, open, palette2) {
   const rows = open ? LOCK_OPEN : LOCK_CLOSED;
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = doc.createElementNS(NS, "svg");
+  const svg = createSvg("svg");
   svg.setAttribute("viewBox", `0 0 ${W} ${rows.length}`);
   svg.setAttribute("shape-rendering", "crispEdges");
   svg.setAttribute("aria-hidden", "true");
@@ -2482,7 +2461,7 @@ function pixelLock(doc, open, palette2) {
     for (let x = 0; x < row.length; x++) {
       const c = row[x];
       if (c === ".") continue;
-      const r = doc.createElementNS(NS, "rect");
+      const r = createSvg("rect");
       r.setAttribute("x", String(x));
       r.setAttribute("y", String(y));
       r.setAttribute("width", "1");
@@ -2585,8 +2564,7 @@ var DESKTOP_ICONS = [
   { id: "bin", label: "Recycle Bin", rows: BIN }
 ];
 function bitmapSvg(doc, rows, palette2) {
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = doc.createElementNS(NS, "svg");
+  const svg = createSvg("svg");
   svg.setAttribute("viewBox", `0 0 ${rows[0]?.length ?? 0} ${rows.length}`);
   svg.setAttribute("shape-rendering", "crispEdges");
   svg.setAttribute("aria-hidden", "true");
@@ -2601,7 +2579,7 @@ function bitmapSvg(doc, rows, palette2) {
       }
       let end = x + 1;
       while (end < row.length && row[end] === c) end++;
-      const r = doc.createElementNS(NS, "rect");
+      const r = createSvg("rect");
       r.setAttribute("x", String(x));
       r.setAttribute("y", String(y));
       r.setAttribute("width", String(end - x));
@@ -2615,9 +2593,9 @@ function bitmapSvg(doc, rows, palette2) {
 }
 function buildDesktop(doc, into) {
   const figures = DESKTOP_ICONS.map((icon) => {
-    const fig = doc.createElement("div");
+    const fig = createDiv();
     fig.className = `vl-icon vl-icon-${icon.id}`;
-    const cap = doc.createElement("span");
+    const cap = createSpan();
     cap.className = "vl-icon-label";
     cap.textContent = icon.label;
     fig.append(bitmapSvg(doc, icon.rows, PALETTE), cap);
@@ -2657,8 +2635,7 @@ function pixelWidth(text) {
   return chars.reduce((w, ch) => w + GLYPHS[ch][0].length, 0) + Math.max(0, chars.length - 1);
 }
 function pixelSvg(doc, text) {
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = doc.createElementNS(NS, "svg");
+  const svg = createSvg("svg");
   svg.setAttribute("viewBox", `0 0 ${pixelWidth(text)} ${GLYPH_ROWS}`);
   svg.setAttribute("shape-rendering", "crispEdges");
   svg.setAttribute("aria-hidden", "true");
@@ -2676,7 +2653,7 @@ function pixelSvg(doc, text) {
         }
         let end = c + 1;
         while (end < row.length && row[end] === "#") end++;
-        const r = doc.createElementNS(NS, "rect");
+        const r = createSvg("rect");
         r.setAttribute("x", String(x + c));
         r.setAttribute("y", String(y));
         r.setAttribute("width", String(end - c));
@@ -3449,7 +3426,7 @@ var GameHost = class {
     this.best = o.highScore;
     game.setHighScore(o.highScore);
     const { doc, win } = o;
-    const canvas = this.canvas = doc.createElement("canvas");
+    const canvas = this.canvas = createEl("canvas");
     canvas.className = "vault-lock-game-canvas";
     canvas.setAttribute("aria-hidden", "true");
     const dpr = Math.min(2, win.devicePixelRatio || 1);
@@ -3649,8 +3626,8 @@ var MAX_TODO_LENGTH = 80;
 var FONT_STACKS = {
   sans: "var(--font-interface, system-ui, sans-serif)",
   serif: '"New York", "Iowan Old Style", Georgia, "Noto Serif KR", "Noto Serif CJK KR", serif',
-  mono: 'ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace',
-  rounded: 'ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", Nunito, Quicksand, system-ui, sans-serif'
+  mono: '"SF Mono", Menlo, Consolas, "D2Coding", monospace',
+  rounded: '"SF Pro Rounded", "Hiragino Maru Gothic ProN", Nunito, Quicksand, system-ui, sans-serif'
 };
 var UNLOCK_MS = 520;
 var POINTER_KINDS = ["glow", "trail", "orbs"];
@@ -3708,7 +3685,7 @@ var OverlayView = class {
     this.lastDate = "";
     this.win = doc.defaultView ?? window;
     const el = (tag, cls) => {
-      const e = doc.createElement(tag);
+      const e = createEl(tag);
       e.className = cls;
       return e;
     };
@@ -4129,7 +4106,7 @@ var OverlayView = class {
     this.bg.style.removeProperty("background-image");
     this.updateMedia();
     if (!url) return;
-    const probe = this.doc.createElement("img");
+    const probe = createEl("img");
     probe.onload = () => {
       if (this.imageUrl !== url) return;
       this.imageAutoDim = this.legibilityDim(probe);
@@ -4151,7 +4128,7 @@ var OverlayView = class {
       this.updateMedia();
       return;
     }
-    const v = this.doc.createElement("video");
+    const v = createEl("video");
     v.className = "vault-lock-video";
     v.muted = true;
     v.loop = true;
@@ -4195,7 +4172,7 @@ var OverlayView = class {
   legibilityDim(src) {
     try {
       const size = 24;
-      const canvas = this.doc.createElement("canvas");
+      const canvas = createEl("canvas");
       canvas.width = canvas.height = size;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       if (!ctx) return 0;
@@ -4228,7 +4205,7 @@ var OverlayView = class {
     colors.forEach((c, i) => this.anim.style.setProperty(`--vl-c${i + 1}`, c));
     const area = this.win.innerWidth * this.win.innerHeight;
     const add = (tag, vars) => {
-      const e = this.doc.createElement(tag);
+      const e = createEl(tag);
       for (const [k, v] of Object.entries(vars)) e.style.setProperty(k, v);
       this.anim.append(e);
     };
@@ -4290,7 +4267,7 @@ var OverlayView = class {
     }
     const parts = runsOf(time).map((run) => {
       if (run.pixel) return pixelSvg(this.doc, run.text);
-      const span = this.doc.createElement("span");
+      const span = createSpan();
       span.className = "vl-px-text";
       span.textContent = run.text;
       return span;
@@ -4314,20 +4291,19 @@ var OverlayView = class {
     }
   }
   renderTodos(todos) {
-    const doc = this.doc;
     const rows = todos.map((todo) => {
-      const row = doc.createElement("div");
+      const row = createDiv();
       row.className = "vault-lock-todo" + (todo.done ? " is-done" : "");
-      const label = doc.createElement("label");
+      const label = createEl("label");
       label.className = "vault-lock-todo-label";
-      const box = doc.createElement("input");
+      const box = createEl("input");
       box.type = "checkbox";
       box.checked = todo.done;
       box.addEventListener("change", () => this.handlers.toggleTodo(todo.id));
-      const text = doc.createElement("span");
+      const text = createSpan();
       text.textContent = todo.text;
       label.append(box, text);
-      const del = doc.createElement("button");
+      const del = createEl("button");
       del.type = "button";
       del.className = "vault-lock-todo-btn";
       del.setAttribute("aria-label", this.t.todoDelete);
@@ -5187,91 +5163,315 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
   }
-  display() {
-    const { containerEl } = this;
+  /** The whole tab, declared so Obsidian can also list these settings in its settings search. */
+  getSettingDefinitions() {
+    const t = this.plugin.t;
+    const s = () => this.plugin.settings;
+    const toggle = (key, name, desc) => ({ name, desc, control: { type: "toggle", key } });
+    const pick = (key, name, values, labels) => {
+      const options = {};
+      for (const v of values) options[v] = labels[v];
+      return { name, control: { type: "dropdown", key, options } };
+    };
+    const slider = (key, name, min, max, step2) => ({
+      name,
+      control: { type: "slider", key, min, max, step: step2 }
+    });
+    const minutes = {};
+    for (const m of IDLE_CHOICES) minutes[String(m)] = m === 0 ? t.idleOff : fmt(t.minutes, m);
+    const graces = {};
+    for (const g of GRACE_CHOICES) graces[String(g)] = g === 0 ? t.immediately : g >= 60 ? fmt(t.minutes, g / 60) : fmt(t.seconds, g);
+    const sizes = {};
+    for (const name of WINDOW_SIZE_NAMES) sizes[name] = `${WINDOW_SIZES[name].width} \xD7 ${WINDOW_SIZES[name].height}`;
+    return [
+      {
+        name: t.settingsInfo,
+        searchable: false,
+        render: (row) => {
+          row.setName("").setDesc(t.settingsInfo);
+        }
+      },
+      {
+        name: t.password,
+        desc: this.plugin.hasPassword ? t.passwordSet : t.passwordNotSet,
+        render: (row) => {
+          if (this.plugin.hasPassword) {
+            row.addButton((b) => b.setButtonText(t.changePassword).onClick(() => this.openModal("change")));
+            row.addButton((b) => b.setButtonText(t.removePassword).setDestructive().onClick(() => this.openModal("remove")));
+          } else {
+            row.addButton((b) => b.setButtonText(t.setPassword).setCta().onClick(() => this.openModal("set")));
+          }
+        }
+      },
+      {
+        name: t.recoveryRow,
+        desc: s().recovery ? t.recoveryOn : t.recoveryOff,
+        visible: () => this.plugin.hasPassword,
+        render: (row) => {
+          row.addButton((b) => b.setButtonText(s().recovery ? t.renewRecovery : t.makeRecovery).onClick(() => this.openModal("recovery")));
+        }
+      },
+      toggle("lockOnStartup", t.lockOnStartup),
+      { name: t.idle, control: { type: "dropdown", key: "idleMinutes", options: minutes } },
+      toggle("lockOnHide", t.lockOnHide, t.lockOnHideDesc),
+      { name: t.grace, desc: t.graceDesc, control: { type: "dropdown", key: "graceSeconds", options: graces } },
+      toggle("coverOnBlur", t.coverOnBlur, t.coverOnBlurDesc),
+      { ...toggle("lockOnSystemLock", t.lockOnSystemLock, t.lockOnSystemLockDesc), visible: () => import_obsidian3.Platform.isDesktopApp },
+      toggle("deviceOnly", t.deviceOnly, t.deviceOnlyDesc),
+      {
+        type: "group",
+        heading: t.appearance,
+        items: [
+          {
+            name: t.preview,
+            desc: t.previewDesc,
+            render: (row) => {
+              row.addButton(
+                (b) => b.setButtonText(t.preview).onClick(() => {
+                  try {
+                    this.app.setting?.close?.();
+                  } catch {
+                  }
+                  this.plugin.previewLock();
+                })
+              );
+            }
+          },
+          { ...toggle("shrinkOnLock", t.shrinkWindow, t.shrinkWindowDesc), visible: () => windowResizeSupported() },
+          // The size only matters when shrinking is on, so the row stays disabled until then.
+          {
+            name: t.lockWindowSize,
+            visible: () => windowResizeSupported(),
+            control: { type: "dropdown", key: "lockWindowSize", options: sizes, disabled: () => !s().shrinkOnLock }
+          },
+          pick("theme", t.theme, THEMES, {
+            default: t.themeDefault,
+            win95: t.themeWin95,
+            terminal: t.themeTerminal,
+            "gameboy-snake": t.themeSnake,
+            "neon-breakout": t.themeBreakout,
+            "folder-runner": t.themeRunner
+          })
+        ]
+      },
+      {
+        type: "group",
+        heading: t.secBackground,
+        items: [
+          pick("backgroundKind", t.bgKind, BACKGROUND_KINDS, { none: t.bgKindNone, image: t.bgKindImage, video: t.bgKindVideo }),
+          {
+            name: t.bgImage,
+            desc: t.bgImageDesc,
+            visible: () => s().backgroundKind === "image",
+            render: (row) => this.imageRow(row)
+          },
+          {
+            name: t.bgVideo,
+            desc: t.bgVideoDesc,
+            visible: () => s().backgroundKind === "video",
+            render: (row) => this.videoRow(row)
+          },
+          { ...slider("dim", t.dim, 0, 80, 5), visible: () => s().backgroundKind !== "none" },
+          { ...slider("blur", t.blur, 0, 20, 1), visible: () => s().backgroundKind !== "none" },
+          pick("animation", t.animation, ANIMATIONS, {
+            none: t.animNone,
+            aurora: t.animAurora,
+            fireflies: t.animFireflies,
+            snow: t.animSnow,
+            glow: t.animGlow,
+            trail: t.animTrail,
+            orbs: t.animOrbs
+          })
+        ]
+      },
+      {
+        type: "group",
+        heading: t.secText,
+        items: [
+          { name: t.textColor, render: (row) => this.colorRow(row, "textColor", "#ffffff") },
+          { name: t.accentColor, render: (row) => this.colorRow(row, "accentColor", "#7c5cd6") },
+          slider("clockScale", t.clockSize, 60, 160, 5),
+          pick("clockFont", t.clockFont, FONT_STYLES, {
+            auto: t.themeAuto,
+            sans: t.fontSans,
+            serif: t.fontSerif,
+            mono: t.fontMono,
+            rounded: t.fontRounded
+          }),
+          // The weight only applies to a chosen font; with "theme default" the theme's own typography is used.
+          {
+            name: t.clockWeight,
+            control: { type: "slider", key: "clockWeight", min: 100, max: 700, step: 100, disabled: () => s().clockFont === "auto" }
+          },
+          {
+            name: t.customTitle,
+            desc: t.customTitleDesc,
+            render: (row) => {
+              row.addText(
+                (c) => c.setPlaceholder(t.lockedTitle).setValue(s().customTitle).then((tc) => tc.inputEl.maxLength = 60).onChange(async (v) => {
+                  s().customTitle = clipChars(v.trim(), 60);
+                  await this.plugin.saveSettings();
+                })
+              );
+            }
+          },
+          pick("titleMode", t.showTitle, TITLE_MODES, { auto: t.titleAuto, show: t.titleShow, hide: t.titleHide })
+        ]
+      },
+      {
+        type: "group",
+        heading: t.secLayout,
+        items: [
+          pick("position", t.position, POSITIONS, { top: t.posTop, center: t.posCenter, bottom: t.posBottom }),
+          pick("fieldShape", t.fieldShape, FIELD_SHAPES, {
+            auto: t.themeAuto,
+            rounded: t.shapeRounded,
+            pill: t.shapePill,
+            square: t.shapeSquare
+          }),
+          toggle("showIcon", t.showIcon),
+          toggle("hoverReveal", t.hoverReveal, t.hoverRevealDesc)
+        ]
+      },
+      {
+        type: "group",
+        heading: t.secWidgets,
+        items: [
+          toggle("showClock", t.showClock),
+          toggle("showSeconds", t.showSeconds),
+          toggle("showDate", t.showDate),
+          pick("clockFormat", t.clockFormat, CLOCK_FORMATS, { auto: t.fmtAuto, "24": t.fmt24, "12": t.fmt12 }),
+          toggle("showTodos", t.showTodos, t.showTodosDesc),
+          {
+            name: t.resetAppearance,
+            desc: t.resetAppearanceDesc,
+            render: (row) => {
+              row.addButton(
+                (b) => b.setButtonText(t.resetAppearanceBtn).setDestructive().onClick(async () => {
+                  const target = this.plugin.settings;
+                  for (const key of APPEARANCE_KEYS) target[key] = DEFAULTS[key];
+                  await this.plugin.saveSettings();
+                  this.update();
+                })
+              );
+            }
+          }
+        ]
+      },
+      { name: t.logTitle, desc: t.logDesc, render: (row) => this.logRow(row) }
+    ];
+  }
+  getControlValue(key) {
+    if (key === "deviceOnly") return this.plugin.deviceOnly;
+    const value = this.plugin.settings[key];
+    return key === "idleMinutes" || key === "graceSeconds" ? String(value) : value;
+  }
+  async setControlValue(key, value) {
+    if (key === "deviceOnly") {
+      await this.plugin.setDeviceOnly(value === true);
+      this.update();
+      return;
+    }
+    const numeric = key === "idleMinutes" || key === "graceSeconds";
+    this.plugin.settings[key] = numeric ? Number(value) : value;
+    await this.plugin.saveSettings();
+    if (key === "lockOnSystemLock") this.plugin.refreshSystemLock();
+    if (key === "backgroundKind" || key === "shrinkOnLock" || key === "clockFont") this.update();
+  }
+  imageRow(row) {
     const t = this.plugin.t;
     const s = this.plugin.settings;
-    const save = () => this.plugin.saveSettings();
-    containerEl.empty();
-    containerEl.createEl("p", { text: t.settingsInfo, cls: "setting-item-description" });
-    const pw = new import_obsidian3.Setting(containerEl).setName(t.password).setDesc(this.plugin.hasPassword ? t.passwordSet : t.passwordNotSet);
-    if (this.plugin.hasPassword) {
-      pw.addButton((b) => b.setButtonText(t.changePassword).onClick(() => this.openModal("change")));
-      pw.addButton((b) => b.setButtonText(t.removePassword).setWarning().onClick(() => this.openModal("remove")));
-    } else {
-      pw.addButton((b) => b.setButtonText(t.setPassword).setCta().onClick(() => this.openModal("set")));
+    if (s.hasBackground) {
+      const thumb = row.controlEl.createEl("img", { cls: "vault-lock-thumb" });
+      thumb.src = this.plugin.app.vault.adapter.getResourcePath(this.plugin.imagePath);
+      thumb.alt = "";
     }
-    if (this.plugin.hasPassword) {
-      new import_obsidian3.Setting(containerEl).setName(t.recoveryRow).setDesc(s.recovery ? t.recoveryOn : t.recoveryOff).addButton((b) => b.setButtonText(s.recovery ? t.renewRecovery : t.makeRecovery).onClick(() => this.openModal("recovery")));
-    }
-    new import_obsidian3.Setting(containerEl).setName(t.lockOnStartup).addToggle(
-      (c) => c.setValue(s.lockOnStartup).onChange(async (v) => {
-        s.lockOnStartup = v;
-        await save();
+    row.addButton(
+      (b) => b.setButtonText(t.chooseImage).onClick(async () => {
+        try {
+          if (!await chooseBackground(this.app, this.plugin.pluginDir, row.settingEl.ownerDocument)) return;
+          s.hasBackground = true;
+          await this.plugin.saveSettings();
+          this.update();
+        } catch {
+          new import_obsidian3.Notice(t.imageFailed);
+        }
       })
     );
-    new import_obsidian3.Setting(containerEl).setName(t.idle).addDropdown((c) => {
-      for (const m of IDLE_CHOICES) c.addOption(String(m), m === 0 ? t.idleOff : fmt(t.minutes, m));
-      c.setValue(String(s.idleMinutes)).onChange(async (v) => {
-        s.idleMinutes = Number(v);
-        await save();
-      });
-    });
-    new import_obsidian3.Setting(containerEl).setName(t.lockOnHide).setDesc(t.lockOnHideDesc).addToggle(
-      (c) => c.setValue(s.lockOnHide).onChange(async (v) => {
-        s.lockOnHide = v;
-        await save();
-      })
-    );
-    new import_obsidian3.Setting(containerEl).setName(t.grace).setDesc(t.graceDesc).addDropdown((c) => {
-      for (const g of GRACE_CHOICES) {
-        c.addOption(String(g), g === 0 ? t.immediately : g >= 60 ? fmt(t.minutes, g / 60) : fmt(t.seconds, g));
-      }
-      c.setValue(String(s.graceSeconds)).onChange(async (v) => {
-        s.graceSeconds = Number(v);
-        await save();
-      });
-    });
-    new import_obsidian3.Setting(containerEl).setName(t.coverOnBlur).setDesc(t.coverOnBlurDesc).addToggle(
-      (c) => c.setValue(s.coverOnBlur).onChange(async (v) => {
-        s.coverOnBlur = v;
-        await save();
-      })
-    );
-    if (import_obsidian3.Platform.isDesktopApp) {
-      new import_obsidian3.Setting(containerEl).setName(t.lockOnSystemLock).setDesc(t.lockOnSystemLockDesc).addToggle(
-        (c) => c.setValue(s.lockOnSystemLock).onChange(async (v) => {
-          s.lockOnSystemLock = v;
-          await save();
-          this.plugin.refreshSystemLock();
+    if (s.hasBackground) {
+      row.addButton(
+        (b) => b.setButtonText(t.removeImage).onClick(async () => {
+          await removeBackground(this.app, this.plugin.pluginDir);
+          s.hasBackground = false;
+          await this.plugin.saveSettings();
+          this.update();
         })
       );
     }
-    new import_obsidian3.Setting(containerEl).setName(t.deviceOnly).setDesc(t.deviceOnlyDesc).addToggle(
-      (c) => c.setValue(this.plugin.deviceOnly).onChange(async (v) => {
-        await this.plugin.setDeviceOnly(v);
-        this.display();
+  }
+  videoRow(row) {
+    const t = this.plugin.t;
+    const s = this.plugin.settings;
+    row.addButton(
+      (b) => b.setButtonText(t.chooseVideo).onClick(async () => {
+        try {
+          const ext = await chooseVideo(this.app, this.plugin.pluginDir, row.settingEl.ownerDocument);
+          if (!ext) return;
+          s.hasVideo = true;
+          s.videoExt = ext;
+          await this.plugin.saveSettings();
+          this.update();
+        } catch {
+          new import_obsidian3.Notice(t.videoFailed);
+        }
       })
     );
-    this.displayAppearance(containerEl, t, s, save);
-    this.displayLog(containerEl, t);
+    if (s.hasVideo) {
+      row.addButton(
+        (b) => b.setButtonText(t.removeImage).onClick(async () => {
+          await removeVideo(this.app, this.plugin.pluginDir);
+          s.hasVideo = false;
+          await this.plugin.saveSettings();
+          this.update();
+        })
+      );
+    }
   }
-  displayLog(containerEl, t) {
+  colorRow(row, key, fallback) {
+    const t = this.plugin.t;
     const s = this.plugin.settings;
-    new import_obsidian3.Setting(containerEl).setName(t.logTitle).setHeading();
-    const row = new import_obsidian3.Setting(containerEl).setDesc(t.logDesc);
+    row.setDesc(s[key] || t.colorAuto);
+    row.addColorPicker(
+      (c) => c.setValue(s[key] || fallback).onChange(async (v) => {
+        s[key] = cleanHex(v);
+        row.setDesc(s[key] || t.colorAuto);
+        await this.plugin.saveSettings();
+      })
+    );
+    row.addExtraButton(
+      (b) => b.setIcon("rotate-ccw").setTooltip(t.resetColor).onClick(async () => {
+        s[key] = "";
+        await this.plugin.saveSettings();
+        this.update();
+      })
+    );
+  }
+  /** The activity log: a clear button and the entries, newest first, under the description. */
+  logRow(row) {
+    const t = this.plugin.t;
+    const s = this.plugin.settings;
     row.addButton(
       (b) => b.setButtonText(t.logClear).onClick(async () => {
-        s.log = [];
+        this.plugin.settings.log = [];
         await this.plugin.saveSettings();
-        this.display();
+        this.update();
       })
     );
     if (s.log.length === 0) {
-      containerEl.createEl("p", { text: t.logEmpty, cls: "setting-item-description" });
+      row.descEl.createEl("p", { text: t.logEmpty });
       return;
     }
-    const list = containerEl.createEl("ul", { cls: "vault-lock-log" });
+    const list = row.descEl.createEl("ul", { cls: "vault-lock-log" });
     const reasons = {
       startup: t.reasonStartup,
       idle: t.reasonIdle,
@@ -5284,258 +5484,8 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
       list.createEl("li", { text: `${new Date(e.t).toLocaleString()}  ${what}` });
     }
   }
-  displayAppearance(containerEl, t, s, save) {
-    const doc = containerEl.ownerDocument;
-    const heading = (name) => new import_obsidian3.Setting(containerEl).setName(name).setHeading();
-    const redraw = () => this.display();
-    const toggle = (name, get, set, desc) => {
-      const row = new import_obsidian3.Setting(containerEl).setName(name);
-      if (desc) row.setDesc(desc);
-      row.addToggle(
-        (c) => c.setValue(get()).onChange(async (v) => {
-          set(v);
-          await save();
-        })
-      );
-    };
-    const choice = (name, values, labels, get, set, after) => {
-      new import_obsidian3.Setting(containerEl).setName(name).addDropdown((c) => {
-        for (const v of values) c.addOption(v, labels[v]);
-        c.setValue(get()).onChange(async (v) => {
-          set(oneOf(v, values, values[0]));
-          await save();
-          after?.();
-        });
-      });
-    };
-    const slide = (name, min, max, step2, get, set) => {
-      return new import_obsidian3.Setting(containerEl).setName(name).addSlider(
-        (c) => c.setLimits(min, max, step2).setValue(get()).setDynamicTooltip().onChange(async (v) => {
-          set(v);
-          await save();
-        })
-      );
-    };
-    const color = (name, key, fallback) => {
-      const row = new import_obsidian3.Setting(containerEl).setName(name).setDesc(s[key] || t.colorAuto);
-      row.addColorPicker(
-        (c) => c.setValue(s[key] || fallback).onChange(async (v) => {
-          s[key] = cleanHex(v);
-          row.setDesc(s[key] || t.colorAuto);
-          await save();
-        })
-      );
-      row.addExtraButton(
-        (b) => b.setIcon("rotate-ccw").setTooltip(t.resetColor).onClick(async () => {
-          s[key] = "";
-          await save();
-          redraw();
-        })
-      );
-    };
-    new import_obsidian3.Setting(containerEl).setName(t.appearance).setHeading();
-    new import_obsidian3.Setting(containerEl).setName(t.preview).setDesc(t.previewDesc).addButton(
-      (b) => b.setButtonText(t.preview).onClick(() => {
-        try {
-          this.app.setting?.close?.();
-        } catch {
-        }
-        this.plugin.previewLock();
-      })
-    );
-    if (windowResizeSupported()) {
-      new import_obsidian3.Setting(containerEl).setName(t.shrinkWindow).setDesc(t.shrinkWindowDesc).addToggle(
-        (c) => c.setValue(s.shrinkOnLock).onChange(async (v) => {
-          s.shrinkOnLock = v;
-          syncSizeRow(v);
-          await save();
-        })
-      );
-      const sizeRow = new import_obsidian3.Setting(containerEl).setName(t.lockWindowSize).addDropdown((c) => {
-        for (const name of WINDOW_SIZE_NAMES) {
-          const z = WINDOW_SIZES[name];
-          c.addOption(name, `${z.width} \xD7 ${z.height}`);
-        }
-        c.setValue(s.lockWindowSize).onChange(async (v) => {
-          s.lockWindowSize = oneOf(v, WINDOW_SIZE_NAMES, "small");
-          await save();
-        });
-      });
-      const syncSizeRow = (enabled) => {
-        sizeRow.setDisabled(!enabled);
-        sizeRow.settingEl.toggleClass("is-disabled", !enabled);
-      };
-      syncSizeRow(s.shrinkOnLock);
-    }
-    choice(
-      t.theme,
-      THEMES,
-      {
-        default: t.themeDefault,
-        win95: t.themeWin95,
-        terminal: t.themeTerminal,
-        "gameboy-snake": t.themeSnake,
-        "neon-breakout": t.themeBreakout,
-        "folder-runner": t.themeRunner
-      },
-      () => s.theme,
-      (v) => s.theme = v
-    );
-    heading(t.secBackground);
-    choice(
-      t.bgKind,
-      BACKGROUND_KINDS,
-      { none: t.bgKindNone, image: t.bgKindImage, video: t.bgKindVideo },
-      () => s.backgroundKind,
-      (v) => s.backgroundKind = v,
-      redraw
-    );
-    if (s.backgroundKind === "image") {
-      const row = new import_obsidian3.Setting(containerEl).setName(t.bgImage).setDesc(t.bgImageDesc);
-      if (s.hasBackground) {
-        const thumb = row.controlEl.createEl("img", { cls: "vault-lock-thumb" });
-        thumb.src = this.plugin.app.vault.adapter.getResourcePath(this.plugin.imagePath);
-        thumb.alt = "";
-      }
-      row.addButton(
-        (b) => b.setButtonText(t.chooseImage).onClick(async () => {
-          try {
-            if (!await chooseBackground(this.app, this.plugin.pluginDir, doc)) return;
-            s.hasBackground = true;
-            await save();
-            redraw();
-          } catch {
-            new import_obsidian3.Notice(t.imageFailed);
-          }
-        })
-      );
-      if (s.hasBackground) {
-        row.addButton(
-          (b) => b.setButtonText(t.removeImage).onClick(async () => {
-            await removeBackground(this.app, this.plugin.pluginDir);
-            s.hasBackground = false;
-            await save();
-            redraw();
-          })
-        );
-      }
-    }
-    if (s.backgroundKind === "video") {
-      const row = new import_obsidian3.Setting(containerEl).setName(t.bgVideo).setDesc(t.bgVideoDesc);
-      row.addButton(
-        (b) => b.setButtonText(t.chooseVideo).onClick(async () => {
-          try {
-            const ext = await chooseVideo(this.app, this.plugin.pluginDir, doc);
-            if (!ext) return;
-            s.hasVideo = true;
-            s.videoExt = ext;
-            await save();
-            redraw();
-          } catch {
-            new import_obsidian3.Notice(t.videoFailed);
-          }
-        })
-      );
-      if (s.hasVideo) {
-        row.addButton(
-          (b) => b.setButtonText(t.removeImage).onClick(async () => {
-            await removeVideo(this.app, this.plugin.pluginDir);
-            s.hasVideo = false;
-            await save();
-            redraw();
-          })
-        );
-      }
-    }
-    if (s.backgroundKind !== "none") {
-      slide(t.dim, 0, 80, 5, () => s.dim, (v) => s.dim = v);
-      slide(t.blur, 0, 20, 1, () => s.blur, (v) => s.blur = v);
-    }
-    choice(
-      t.animation,
-      ANIMATIONS,
-      {
-        none: t.animNone,
-        aurora: t.animAurora,
-        fireflies: t.animFireflies,
-        snow: t.animSnow,
-        glow: t.animGlow,
-        trail: t.animTrail,
-        orbs: t.animOrbs
-      },
-      () => s.animation,
-      (v) => s.animation = v
-    );
-    heading(t.secText);
-    color(t.textColor, "textColor", "#ffffff");
-    color(t.accentColor, "accentColor", "#7c5cd6");
-    slide(t.clockSize, 60, 160, 5, () => s.clockScale, (v) => s.clockScale = v);
-    choice(
-      t.clockFont,
-      FONT_STYLES,
-      { auto: t.themeAuto, sans: t.fontSans, serif: t.fontSerif, mono: t.fontMono, rounded: t.fontRounded },
-      () => s.clockFont,
-      (v) => s.clockFont = v,
-      () => syncWeightRow()
-    );
-    const weightRow = slide(t.clockWeight, 100, 700, 100, () => s.clockWeight, (v) => s.clockWeight = v);
-    const syncWeightRow = () => {
-      weightRow.setDisabled(s.clockFont === "auto");
-      weightRow.settingEl.toggleClass("is-disabled", s.clockFont === "auto");
-    };
-    syncWeightRow();
-    new import_obsidian3.Setting(containerEl).setName(t.customTitle).setDesc(t.customTitleDesc).addText(
-      (c) => c.setPlaceholder(t.lockedTitle).setValue(s.customTitle).then((tc) => tc.inputEl.maxLength = 60).onChange(async (v) => {
-        s.customTitle = clipChars(v.trim(), 60);
-        await save();
-      })
-    );
-    choice(
-      t.showTitle,
-      TITLE_MODES,
-      { auto: t.titleAuto, show: t.titleShow, hide: t.titleHide },
-      () => s.titleMode,
-      (v) => s.titleMode = v
-    );
-    heading(t.secLayout);
-    choice(
-      t.position,
-      POSITIONS,
-      { top: t.posTop, center: t.posCenter, bottom: t.posBottom },
-      () => s.position,
-      (v) => s.position = v
-    );
-    choice(
-      t.fieldShape,
-      FIELD_SHAPES,
-      { auto: t.themeAuto, rounded: t.shapeRounded, pill: t.shapePill, square: t.shapeSquare },
-      () => s.fieldShape,
-      (v) => s.fieldShape = v
-    );
-    toggle(t.showIcon, () => s.showIcon, (v) => s.showIcon = v);
-    toggle(t.hoverReveal, () => s.hoverReveal, (v) => s.hoverReveal = v, t.hoverRevealDesc);
-    heading(t.secWidgets);
-    toggle(t.showClock, () => s.showClock, (v) => s.showClock = v);
-    toggle(t.showSeconds, () => s.showSeconds, (v) => s.showSeconds = v);
-    toggle(t.showDate, () => s.showDate, (v) => s.showDate = v);
-    choice(
-      t.clockFormat,
-      CLOCK_FORMATS,
-      { auto: t.fmtAuto, "24": t.fmt24, "12": t.fmt12 },
-      () => s.clockFormat,
-      (v) => s.clockFormat = v
-    );
-    toggle(t.showTodos, () => s.showTodos, (v) => s.showTodos = v, t.showTodosDesc);
-    new import_obsidian3.Setting(containerEl).setName(t.resetAppearance).setDesc(t.resetAppearanceDesc).addButton(
-      (b) => b.setButtonText(t.resetAppearanceBtn).setWarning().onClick(async () => {
-        for (const key of APPEARANCE_KEYS) s[key] = DEFAULTS[key];
-        await save();
-        redraw();
-      })
-    );
-  }
   openModal(mode) {
-    new PasswordModal(this.app, this.plugin, mode, () => this.display()).open();
+    new PasswordModal(this.app, this.plugin, mode, () => this.update()).open();
   }
 };
 var PasswordModal = class extends import_obsidian3.Modal {
@@ -5655,15 +5605,7 @@ var RecoveryKeyModal = class extends import_obsidian3.Modal {
     this.setTitle(t.recoveryKeyTitle);
     contentEl.createEl("p", { text: t.recoveryKeyIntro });
     contentEl.createEl("code", { text: this.key ?? "", cls: "vault-lock-recovery-key" });
-    new import_obsidian3.Setting(contentEl).addButton(
-      (b) => b.setButtonText(t.copyKey).onClick(async () => {
-        try {
-          await navigator.clipboard.writeText(this.key ?? "");
-          new import_obsidian3.Notice(t.copied);
-        } catch {
-        }
-      })
-    ).addButton((b) => b.setButtonText(t.keySaved).setCta().onClick(() => this.close()));
+    new import_obsidian3.Setting(contentEl).addButton((b) => b.setButtonText(t.keySaved).setCta().onClick(() => this.close()));
   }
   onClose() {
     if (this.plugin.passwordModal === this) this.plugin.passwordModal = null;

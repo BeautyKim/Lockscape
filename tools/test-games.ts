@@ -124,6 +124,8 @@ function key(type: "keydown" | "keyup", code: string, extra: Record<string, unkn
 
 function rig(game = new SnakeGame(() => 0), highScore = 0, focusFieldResult = true) {
 	const doc = new FakeDoc();
+	// the plugin creates elements with Obsidian's global createEl
+	(globalThis as unknown as { createEl: (tag: string) => FakeEl }).createEl = (tag) => doc.createElement(tag);
 	const win = new FakeWin();
 	const root = new FakeEl("DIV", doc);
 	const mount = new FakeEl("DIV", doc);

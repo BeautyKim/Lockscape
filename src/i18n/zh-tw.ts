@@ -138,8 +138,6 @@ const zhTW: Strings = {
 	resetIntro: "你已用復原金鑰解鎖。請現在設定新密碼,同時會產生新的復原金鑰。",
 	recoveryKeyTitle: "你的復原金鑰",
 	recoveryKeyIntro: "請抄下這個金鑰,保存在遠離這台電腦的安全地方。它只顯示一次,之後無法再查看。忘記密碼時可用它解鎖螢幕。任何拿到它的人都能解鎖螢幕。",
-	copyKey: "複製",
-	copied: "已複製。",
 	keySaved: "我已儲存",
 	recoveryRow: "復原金鑰",
 	recoveryOn: "已設定。在鎖定畫面點選「忘記密碼?」使用。",

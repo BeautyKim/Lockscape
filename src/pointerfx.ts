@@ -63,7 +63,7 @@ export class PointerFx {
 		private readonly colors: string[],
 	) {
 		this.rgb = colors.map((c) => resolveColor(doc, c) ?? [124, 92, 214]);
-		this.canvas = doc.createElement("canvas");
+		this.canvas = createEl("canvas");
 		this.canvas.className = "vault-lock-fx";
 		this.canvas.setAttribute("aria-hidden", "true");
 		host.append(this.canvas);

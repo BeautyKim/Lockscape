@@ -108,8 +108,7 @@ export const DESKTOP_ICONS: readonly DesktopIcon[] = [
 
 /** Draw a bitmap as one <svg> of <rect>s (runs of one colour are merged into one rect). Empty cells ("." or unknown) are skipped. */
 export function bitmapSvg(doc: Document, rows: readonly string[], palette: Readonly<Record<string, string>>): SVGSVGElement {
-	const NS = "http://www.w3.org/2000/svg";
-	const svg = doc.createElementNS(NS, "svg");
+	const svg = createSvg("svg");
 	svg.setAttribute("viewBox", `0 0 ${rows[0]?.length ?? 0} ${rows.length}`);
 	svg.setAttribute("shape-rendering", "crispEdges");
 	svg.setAttribute("aria-hidden", "true");
@@ -124,7 +123,7 @@ export function bitmapSvg(doc: Document, rows: readonly string[], palette: Reado
 			}
 			let end = x + 1;
 			while (end < row.length && row[end] === c) end++;
-			const r = doc.createElementNS(NS, "rect");
+			const r = createSvg("rect");
 			r.setAttribute("x", String(x));
 			r.setAttribute("y", String(y));
 			r.setAttribute("width", String(end - x));
@@ -140,9 +139,9 @@ export function bitmapSvg(doc: Document, rows: readonly string[], palette: Reado
 /** The icon column: one <figure> per icon with its caption. Built once; the stylesheet decides when it shows. */
 export function buildDesktop(doc: Document, into: HTMLElement): void {
 	const figures = DESKTOP_ICONS.map((icon) => {
-		const fig = doc.createElement("div");
+		const fig = createDiv();
 		fig.className = `vl-icon vl-icon-${icon.id}`;
-		const cap = doc.createElement("span");
+		const cap = createSpan();
 		cap.className = "vl-icon-label";
 		cap.textContent = icon.label;
 		fig.append(bitmapSvg(doc, icon.rows, PALETTE), cap);
