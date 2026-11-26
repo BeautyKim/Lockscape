@@ -1,18 +1,19 @@
 # Lockscape
 
+English · [한국어](README.ko.md)
+
 A password lock screen for [Obsidian](https://obsidian.md) on macOS and Windows. It covers your notes when you start the app, when you walk away, and when you switch to another app, and you decide how the lock screen looks: six themes (including three small offline games), your own photo or video, a clock, a light animation.
 
-![Six Lockscape themes: default, Windows 95, developer terminal, handheld snake, neon breakout and runner](docs/themes.jpg)
+![Six Lockscape themes: default, Windows 95, developer terminal, handheld snake, neon breakout and folder runner](docs/themes.jpg)
 
-> [!WARNING]
-> **Lockscape is a screen lock, not encryption.**
+> ⚠️ **Lockscape is a screen lock, not encryption.**
 > It keeps a colleague or passer-by from using your unlocked, unattended Obsidian. It does **not** encrypt your notes. Anyone who can open the vault folder can read the `.md` files. For a lost or stolen computer, use FileVault (macOS) or BitLocker (Windows). Details: [Security notes](docs/SECURITY.md).
 
 ## Features
 
 - **Locks when you want it to**: on startup, after 1 to 60 minutes without activity, when you leave the app, when the computer locks or sleeps, or by hand (ribbon icon or command).
 - **Grace period**: leave and come back within 30 seconds (adjustable, or off) and no password is asked.
-- **Six themes**: Default, Windows 95, developer terminal, and three offline games to play on the lock screen: handheld snake, neon breakout, runner. Each saves its best score.
+- **Six themes**: Default, Windows 95, developer terminal, and three offline games to play on the lock screen: handheld snake, neon breakout, folder runner. Each saves its best score.
 - **Your own look**: a photo or a short looping video as the background, dimming and blur, seven animations (some follow the mouse), clock size and font, colours, field shape. A **Preview** button shows the result without locking.
 - **Recovery key**: when you set a password you get a random key to write down. If you forget the password, *Forgot your password?* on the lock screen unlocks with it.
 - **Hide screen**: a command that covers everything at once, for example before you share your screen. It is not a lock: click or press Esc to show it again.
@@ -26,7 +27,7 @@ A password lock screen for [Obsidian](https://obsidian.md) on macOS and Windows.
 
 ## Install
 
-**From the community plugin browser** (once Lockscape is listed): Settings → Community plugins → Browse → search for *Lockscape* → Install → Enable.
+**From the community directory**: open the [Lockscape page](https://community.obsidian.md/plugins/lockscape) and choose **Add to Obsidian**, or in the app go to Settings → Community plugins → Browse, search for *Lockscape*, then Install and Enable.
 
 **Manually**: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/BeautyKim/Lockscape/releases/latest) into `<your vault>/.obsidian/plugins/lockscape/`, then enable **Lockscape** under Settings → Community plugins.
 
