@@ -1,7 +1,7 @@
 {
   "id": "lockscape",
   "name": "Lockscape",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minAppVersion": "1.13.0",
   "description": "Password lock screen on startup, idle, focus loss and system lock, with themes, backgrounds and offline games. Desktop only. Does not encrypt files.",
   "author": "BeautyKim",

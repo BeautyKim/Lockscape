@@ -1,6 +1,6 @@
 {
   "name": "lockscape",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Password lock screen for Obsidian (desktop only). No runtime dependencies, no network.",
   "private": true,
   "license": "MIT",
