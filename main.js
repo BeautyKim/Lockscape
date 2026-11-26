@@ -462,7 +462,7 @@ var en = {
   themeTerminal: "Developer terminal",
   themeSnake: "Handheld snake (game)",
   themeBreakout: "Arcade breakout (game)",
-  themeRunner: "Obsidian runner (game)",
+  themeRunner: "Folder runner (game)",
   themeAuto: "Theme default",
   animGlow: "Cursor spotlight",
   animTrail: "Cursor trail",
@@ -629,7 +629,7 @@ var ko = {
   themeTerminal: "\uAC1C\uBC1C\uC790 \uD130\uBBF8\uB110",
   themeSnake: "\uAC8C\uC784\uBCF4\uC774 \uC2A4\uB124\uC774\uD06C (\uAC8C\uC784)",
   themeBreakout: "\uC544\uCF00\uC774\uB4DC \uBCBD\uB3CC\uAE68\uAE30 (\uAC8C\uC784)",
-  themeRunner: "\uC635\uC2DC\uB514\uC5B8 \uB7EC\uB108 (\uAC8C\uC784)",
+  themeRunner: "\uD3F4\uB354 \uB7EC\uB108 (\uAC8C\uC784)",
   themeAuto: "\uD14C\uB9C8 \uAE30\uBCF8",
   animGlow: "\uB9C8\uC6B0\uC2A4 \uC870\uBA85",
   animTrail: "\uB9C8\uC6B0\uC2A4 \uADA4\uC801",
@@ -796,7 +796,7 @@ var ja = {
   themeTerminal: "\u958B\u767A\u8005\u30BF\u30FC\u30DF\u30CA\u30EB",
   themeSnake: "\u643A\u5E2F\u30B2\u30FC\u30E0\u6A5F\u30B9\u30CD\u30FC\u30AF (\u30B2\u30FC\u30E0)",
   themeBreakout: "\u30A2\u30FC\u30B1\u30FC\u30C9\u30D6\u30ED\u30C3\u30AF\u5D29\u3057 (\u30B2\u30FC\u30E0)",
-  themeRunner: "\u30AA\u30D6\u30B7\u30C7\u30A3\u30A2\u30F3\u30FB\u30E9\u30F3\u30CA\u30FC (\u30B2\u30FC\u30E0)",
+  themeRunner: "\u30D5\u30A9\u30EB\u30C0\u30FC\u30FB\u30E9\u30F3\u30CA\u30FC (\u30B2\u30FC\u30E0)",
   themeAuto: "\u30C6\u30FC\u30DE\u306E\u65E2\u5B9A",
   animGlow: "\u30AB\u30FC\u30BD\u30EB\u306E\u30B9\u30DD\u30C3\u30C8\u30E9\u30A4\u30C8",
   animTrail: "\u30AB\u30FC\u30BD\u30EB\u306E\u8ECC\u8DE1",
@@ -963,7 +963,7 @@ var zh = {
   themeTerminal: "\u5F00\u53D1\u8005\u7EC8\u7AEF",
   themeSnake: "\u638C\u673A\u8D2A\u5403\u86C7 (\u6E38\u620F)",
   themeBreakout: "\u8857\u673A\u6253\u7816\u5757 (\u6E38\u620F)",
-  themeRunner: "\u9ED1\u66DC\u77F3\u8DD1\u9177 (\u6E38\u620F)",
+  themeRunner: "\u6587\u4EF6\u5939\u8DD1\u9177 (\u6E38\u620F)",
   themeAuto: "\u4E3B\u9898\u9ED8\u8BA4",
   animGlow: "\u9F20\u6807\u805A\u5149\u706F",
   animTrail: "\u9F20\u6807\u8F68\u8FF9",
@@ -1130,7 +1130,7 @@ var zhTW = {
   themeTerminal: "\u958B\u767C\u8005\u7D42\u7AEF\u6A5F",
   themeSnake: "\u638C\u6A5F\u8CAA\u98DF\u86C7 (\u904A\u6232)",
   themeBreakout: "\u8857\u6A5F\u6253\u78DA\u584A (\u904A\u6232)",
-  themeRunner: "\u9ED1\u66DC\u77F3\u8DD1\u9177 (\u904A\u6232)",
+  themeRunner: "\u8CC7\u6599\u593E\u8DD1\u9177 (\u904A\u6232)",
   themeAuto: "\u4E3B\u984C\u9810\u8A2D",
   animGlow: "\u6ED1\u9F20\u805A\u5149\u71C8",
   animTrail: "\u6ED1\u9F20\u8ECC\u8DE1",
@@ -1297,7 +1297,7 @@ var es = {
   themeTerminal: "Terminal de desarrollo",
   themeSnake: "Serpiente port\xE1til (juego)",
   themeBreakout: "Arcade rompe-bloques (juego)",
-  themeRunner: "Obsidian Runner (juego)",
+  themeRunner: "Folder Runner (juego)",
   themeAuto: "Predeterminada del tema",
   animGlow: "Foco que sigue al cursor",
   animTrail: "Estela del cursor",
@@ -1464,7 +1464,7 @@ var fr = {
   themeTerminal: "Terminal d\xE9veloppeur",
   themeSnake: "Snake console portable (jeu)",
   themeBreakout: "Casse-briques arcade (jeu)",
-  themeRunner: "Obsidian Runner (jeu)",
+  themeRunner: "Folder Runner (jeu)",
   themeAuto: "D\xE9faut du th\xE8me",
   animGlow: "Projecteur qui suit le curseur",
   animTrail: "Tra\xEEn\xE9e du curseur",
@@ -1631,7 +1631,7 @@ var de = {
   themeTerminal: "Entwickler-Terminal",
   themeSnake: "Handheld-Snake (Spiel)",
   themeBreakout: "Arcade-Breakout (Spiel)",
-  themeRunner: "Obsidian-Runner (Spiel)",
+  themeRunner: "Folder-Runner (Spiel)",
   themeAuto: "Theme-Standard",
   animGlow: "Cursor-Scheinwerfer",
   animTrail: "Cursor-Spur",
@@ -1798,7 +1798,7 @@ var pt = {
   themeTerminal: "Terminal do desenvolvedor",
   themeSnake: "Snake port\xE1til (jogo)",
   themeBreakout: "Quebra-blocos arcade (jogo)",
-  themeRunner: "Obsidian Runner (jogo)",
+  themeRunner: "Folder Runner (jogo)",
   themeAuto: "Padr\xE3o do tema",
   animGlow: "Holofote do cursor",
   animTrail: "Rastro do cursor",
@@ -1965,7 +1965,7 @@ var ru = {
   themeTerminal: "\u0422\u0435\u0440\u043C\u0438\u043D\u0430\u043B \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430",
   themeSnake: "\u0417\u043C\u0435\u0439\u043A\u0430 \u043D\u0430 \u043A\u043E\u043D\u0441\u043E\u043B\u0438 (\u0438\u0433\u0440\u0430)",
   themeBreakout: "\u0410\u0440\u043A\u0430\u0434\u0430: \u0440\u0430\u0437\u0431\u0435\u0439 \u043A\u0438\u0440\u043F\u0438\u0447\u0438 (\u0438\u0433\u0440\u0430)",
-  themeRunner: "Obsidian Runner (\u0438\u0433\u0440\u0430)",
+  themeRunner: "Folder Runner (\u0438\u0433\u0440\u0430)",
   themeAuto: "\u0418\u0437 \u0442\u0435\u043C\u044B",
   animGlow: "\u041F\u0440\u043E\u0436\u0435\u043A\u0442\u043E\u0440 \u0437\u0430 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C",
   animTrail: "\u0421\u043B\u0435\u0434 \u043A\u0443\u0440\u0441\u043E\u0440\u0430",
@@ -2052,12 +2052,12 @@ function clipChars(text, max) {
 }
 
 // src/themes.ts
-var THEMES = ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "obsidian-runner"];
+var THEMES = ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "folder-runner"];
 var GAME_IDS = ["snake", "breakout", "runner"];
 var GAME_OF = {
   "gameboy-snake": "snake",
   "neon-breakout": "breakout",
-  "obsidian-runner": "runner"
+  "folder-runner": "runner"
 };
 function gameOf(theme) {
   return GAME_OF[theme] ?? null;
@@ -2068,9 +2068,10 @@ var THEME_TEXT = {
   terminal: { unlock: "[UNLOCK]", title: "[ LOCKED ]", unlocked: "[ UNLOCKED ]", placeholder: "none" },
   "gameboy-snake": { unlock: "PLAY & UNLOCK" },
   "neon-breakout": { unlock: "UNLOCK", placeholder: "none" },
-  "obsidian-runner": { unlock: "UNLOCK", placeholder: "english" }
+  "folder-runner": { unlock: "UNLOCK", placeholder: "english" }
 };
 function parseTheme(raw) {
+  if (raw === "obsidian-runner") return "folder-runner";
   return THEMES.includes(raw) ? raw : "default";
 }
 var MAX_SCORE = 999999;
@@ -3660,7 +3661,7 @@ function isFormControl(el) {
 }
 var PIXEL_LOCKS = {
   win95: { o: "#000000", s: "#808080", f: "#c0c0c0", k: "#000000" },
-  "obsidian-runner": { o: "#d1d5db", s: "#6b7280", f: "#f3f4f6", k: "#374151" },
+  "folder-runner": { o: "#d1d5db", s: "#6b7280", f: "#f3f4f6", k: "#374151" },
   "gameboy-snake": { o: "#9bbc0f", s: "#5f7f1a", f: "#8bac0f", k: "#1b3220" }
 };
 var clamp2 = (n, min, max) => Math.min(max, Math.max(min, n));
@@ -4066,7 +4067,7 @@ var OverlayView = class {
     this.baseTitle = text.title ?? this.t.lockedTitle;
     if (!this.root.classList.contains("is-unlocking")) this.drawIcon(false);
     this.input.placeholder = text.placeholder === "none" ? " " : text.placeholder === "english" ? "password" : this.t.placeholder;
-    this.chromeTitleEl.textContent = a.theme === "win95" ? "Obsidian" : a.theme === "terminal" ? "obsidian \u2014 zsh" : "";
+    this.chromeTitleEl.textContent = a.theme === "win95" ? "Lockscape" : a.theme === "terminal" ? "lockscape \u2014 zsh" : "";
     r.classList.toggle("has-recovery", a.hasRecovery);
     if (!a.hasRecovery && this.recoveryOn) this.setRecovery(false);
     this.refreshLabels();
@@ -5375,7 +5376,7 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
         terminal: t.themeTerminal,
         "gameboy-snake": t.themeSnake,
         "neon-breakout": t.themeBreakout,
-        "obsidian-runner": t.themeRunner
+        "folder-runner": t.themeRunner
       },
       () => s.theme,
       (v) => s.theme = v

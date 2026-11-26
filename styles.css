@@ -872,7 +872,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 .vault-lock-overlay[data-theme="terminal"] .vault-lock-message { grid-column: 1 / -1; grid-row: 4; color: #f85149; }
 
 /* =========================================================================================
- * OFFLINE GAME THEMES (gameboy-snake, neon-breakout, obsidian-runner)
+ * OFFLINE GAME THEMES (gameboy-snake, neon-breakout, folder-runner)
  * A small canvas game sits above the lock card. The plugin draws the game; these rules frame it and restyle the
  * clock, card, field and button to match. No glow, no shadows: 1px lines and matte colours.
  * ========================================================================================= */
@@ -1010,37 +1010,37 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 .vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-button:hover { background: rgba(90, 210, 230, 0.08); }
 .vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-message { color: #e879b9; }
 
-/* ---------- Obsidian Runner: matte dark grey, pixel padlock ---------- */
-.vault-lock-overlay[data-theme="obsidian-runner"] { background: #1c1c1e; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-stage {
+/* ---------- Folder Runner: matte dark grey, pixel padlock ---------- */
+.vault-lock-overlay[data-theme="folder-runner"] { background: #1c1c1e; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-stage {
 	--vl-win-bg: #313133;
 	--vl-win-fg: var(--vl-text, #e5e7eb);
 	--vl-game-reserve: 290px;
 	border: 1px solid #48484c;
 	border-radius: 14px;
 }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-clock { display: none; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-game { background: #2a2a2d; border: 1px solid #48484c; border-radius: 8px; overflow: hidden; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-game-canvas { image-rendering: pixelated; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-icon svg { width: 34px; height: 37px; opacity: 1; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-input {
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-clock { display: none; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-game { background: #2a2a2d; border: 1px solid #48484c; border-radius: 8px; overflow: hidden; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-game-canvas { image-rendering: pixelated; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-icon svg { width: 34px; height: 37px; opacity: 1; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-input {
 	border: 1px solid #4c4c51;
 	border-radius: 6px;
 	background: #262628;
 	box-shadow: none;
 	color: #e5e7eb;
 }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-input::placeholder { color: #9494a0; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-input:focus { border-color: var(--vl-accent, #9ca3af); box-shadow: none; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-button {
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-input::placeholder { color: #9494a0; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-input:focus { border-color: var(--vl-accent, #9ca3af); box-shadow: none; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-button {
 	border: 1px solid #55555a;
 	border-radius: 6px;
 	background: #3d3d41;
 	color: #d4d4d8;
 	font-weight: 500;
 }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-button:hover { background: #47474c; }
-.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-message { color: #f08a8a; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-button:hover { background: #47474c; }
+.vault-lock-overlay[data-theme="folder-runner"] .vault-lock-message { color: #f08a8a; }
 
 /* landscape phones and other very low windows: tighter, and the terminal's fake log goes, so the field is on the first screen */
 @media (max-height: 400px) {

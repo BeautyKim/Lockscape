@@ -54,10 +54,11 @@ const check = (name: string, ok: boolean) => { console.log((ok ? "PASS " : "FAIL
 
   // themes
   check("six themes", THEMES.length === 6 && THEMES[0] === "default");
-  check("parseTheme keeps a known theme", parseTheme("win95") === "win95" && parseTheme("obsidian-runner") === "obsidian-runner");
+  check("parseTheme keeps a known theme", parseTheme("win95") === "win95" && parseTheme("folder-runner") === "folder-runner");
+  check("parseTheme moves the old runner id to the new one", parseTheme("obsidian-runner") === "folder-runner");
   check("parseTheme: retro/cartoon from older versions become default", parseTheme("retro") === "default" && parseTheme("cartoon") === "default");
   check("parseTheme: junk becomes default", parseTheme(undefined) === "default" && parseTheme(7) === "default" && parseTheme({}) === "default" && parseTheme("__proto__") === "default");
-  check("three game themes", THEMES.filter((t) => gameOf(t) !== null).length === 3 && gameOf("gameboy-snake") === "snake" && gameOf("neon-breakout") === "breakout" && gameOf("obsidian-runner") === "runner" && gameOf("terminal") === null);
+  check("three game themes", THEMES.filter((t) => gameOf(t) !== null).length === 3 && gameOf("gameboy-snake") === "snake" && gameOf("neon-breakout") === "breakout" && gameOf("folder-runner") === "runner" && gameOf("terminal") === null);
   check("every theme has a text spec", THEMES.every((t) => t in THEME_TEXT));
   check("parseHighScores: valid", JSON.stringify(parseHighScores({ snake: 12, breakout: 340, runner: 5 })) === JSON.stringify({ snake: 12, breakout: 340, runner: 5 }));
   check("parseHighScores: negative, NaN, strings, floats, huge", JSON.stringify(parseHighScores({ snake: -5, breakout: "9", runner: 1e12 })) === JSON.stringify({ snake: 0, breakout: 0, runner: 999999 }) && parseHighScores({ snake: NaN }).snake === 0 && parseHighScores({ snake: 7.9 }).snake === 7);

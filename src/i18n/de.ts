@@ -124,7 +124,7 @@ const de: Strings = {
 	themeTerminal: "Entwickler-Terminal",
 	themeSnake: "Handheld-Snake (Spiel)",
 	themeBreakout: "Arcade-Breakout (Spiel)",
-	themeRunner: "Obsidian-Runner (Spiel)",
+	themeRunner: "Folder-Runner (Spiel)",
 	themeAuto: "Theme-Standard",
 	animGlow: "Cursor-Scheinwerfer",
 	animTrail: "Cursor-Spur",

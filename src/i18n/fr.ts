@@ -124,7 +124,7 @@ const fr: Strings = {
 	themeTerminal: "Terminal développeur",
 	themeSnake: "Snake console portable (jeu)",
 	themeBreakout: "Casse-briques arcade (jeu)",
-	themeRunner: "Obsidian Runner (jeu)",
+	themeRunner: "Folder Runner (jeu)",
 	themeAuto: "Défaut du thème",
 	animGlow: "Projecteur qui suit le curseur",
 	animTrail: "Traînée du curseur",

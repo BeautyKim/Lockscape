@@ -124,7 +124,7 @@ const ja: Strings = {
 	themeTerminal: "開発者ターミナル",
 	themeSnake: "携帯ゲーム機スネーク (ゲーム)",
 	themeBreakout: "アーケードブロック崩し (ゲーム)",
-	themeRunner: "オブシディアン・ランナー (ゲーム)",
+	themeRunner: "フォルダー・ランナー (ゲーム)",
 	themeAuto: "テーマの既定",
 	animGlow: "カーソルのスポットライト",
 	animTrail: "カーソルの軌跡",

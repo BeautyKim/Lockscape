@@ -957,7 +957,7 @@ class VaultLockSettingTab extends PluginSettingTab {
 				terminal: t.themeTerminal,
 				"gameboy-snake": t.themeSnake,
 				"neon-breakout": t.themeBreakout,
-				"obsidian-runner": t.themeRunner,
+				"folder-runner": t.themeRunner,
 			},
 			() => s.theme,
 			(v) => (s.theme = v),

@@ -124,7 +124,7 @@ const ru: Strings = {
 	themeTerminal: "Терминал разработчика",
 	themeSnake: "Змейка на консоли (игра)",
 	themeBreakout: "Аркада: разбей кирпичи (игра)",
-	themeRunner: "Obsidian Runner (игра)",
+	themeRunner: "Folder Runner (игра)",
 	themeAuto: "Из темы",
 	animGlow: "Прожектор за курсором",
 	animTrail: "След курсора",

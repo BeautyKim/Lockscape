@@ -124,7 +124,7 @@ const en = {
 	themeTerminal: "Developer terminal",
 	themeSnake: "Handheld snake (game)",
 	themeBreakout: "Arcade breakout (game)",
-	themeRunner: "Obsidian runner (game)",
+	themeRunner: "Folder runner (game)",
 	themeAuto: "Theme default",
 	animGlow: "Cursor spotlight",
 	animTrail: "Cursor trail",

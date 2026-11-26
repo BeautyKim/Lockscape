@@ -174,7 +174,7 @@ const PAGE = String.raw`(() => {
       const groups = (txt.match(/\d+/g) || []).length; if (S.showSeconds && groups < 3) add("clock-seconds-missing", txt); if (!S.showSeconds && groups > 2) add("clock-seconds-unexpected", txt);
       if (theme === "win95" && (!label0 || !/\d/.test(label0) || time.getAttribute("role") !== "img" || time.querySelectorAll("svg").length === 0)) add("win95-clock-aria-label", "label=" + label0 + " role=" + time.getAttribute("role") + " svgs=" + time.querySelectorAll("svg").length + " cls=" + time.className);
       if (theme !== "win95" && time.hasAttribute("aria-label")) add("stale-aria-label");
-    } else if (S.showClock && clock && !shown(clock)) { if (theme !== "gameboy-snake" && theme !== "obsidian-runner") add("clock-hidden-but-on", theme); }
+    } else if (S.showClock && clock && !shown(clock)) { if (theme !== "gameboy-snake" && theme !== "folder-runner") add("clock-hidden-but-on", theme); }
     if (S.showClock && S.showDate === false && shown(date)) add("date-visible-when-off");
 
     // ---- title, icon, text safety
@@ -247,7 +247,7 @@ const S = (o) => ({ settings: o });
 const longTitle = "Vault is locked right now - please enter the password to continue working";
 const todo = (n, long) => Array.from({ length: n }, (_, i) => ({ id: "q" + i, text: long ? "A very long to-do item number " + (i + 1) + " that keeps going and going to test wrapping inside the panel" : "Item " + (i + 1), done: i % 3 === 1 }));
 const dims = [
-  { name: "theme", values: ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "obsidian-runner"].map((t) => V(t, S({ theme: t }))) },
+  { name: "theme", values: ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "folder-runner"].map((t) => V(t, S({ theme: t }))) },
   { name: "bg", values: [V("none", {}), V("photoBright", { media: { kind: "image", file: "qa-bright.jpg" } }), V("photoDark", { media: { kind: "image", file: "qa-dark.jpg" } }), V("photoBusy", { media: { kind: "image", file: "qa-busy.jpg" } }),
       V("photoTall", { media: { kind: "image", file: "qa-tall.jpg" } }), V("photoTiny", { media: { kind: "image", file: "qa-tiny.jpg" } }), V("videoAurora", { media: { kind: "video", file: "qa-aurora.mp4" } }), V("videoBright", { media: { kind: "video", file: "qa-bright.mp4" } })] },
   { name: "dimblur", values: [V("d35b0", S({ dim: 35, blur: 0 })), V("d0b0", S({ dim: 0, blur: 0 })), V("d80b20", S({ dim: 80, blur: 20 })), V("d0b20", S({ dim: 0, blur: 20 }))] },

@@ -2,7 +2,7 @@
 // Three of them also run a small offline canvas game above the password field.
 // This file has no DOM or Obsidian imports on purpose: it is unit-tested in plain node.
 
-export const THEMES = ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "obsidian-runner"] as const;
+export const THEMES = ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "folder-runner"] as const;
 export type Theme = (typeof THEMES)[number];
 
 export const GAME_IDS = ["snake", "breakout", "runner"] as const;
@@ -11,7 +11,7 @@ export type GameId = (typeof GAME_IDS)[number];
 const GAME_OF: Readonly<Partial<Record<Theme, GameId>>> = {
 	"gameboy-snake": "snake",
 	"neon-breakout": "breakout",
-	"obsidian-runner": "runner",
+	"folder-runner": "runner",
 };
 
 export function gameOf(theme: Theme): GameId | null {
@@ -35,11 +35,12 @@ export const THEME_TEXT: Readonly<Record<Theme, ThemeText>> = {
 	terminal: { unlock: "[UNLOCK]", title: "[ LOCKED ]", unlocked: "[ UNLOCKED ]", placeholder: "none" },
 	"gameboy-snake": { unlock: "PLAY & UNLOCK" },
 	"neon-breakout": { unlock: "UNLOCK", placeholder: "none" },
-	"obsidian-runner": { unlock: "UNLOCK", placeholder: "english" },
+	"folder-runner": { unlock: "UNLOCK", placeholder: "english" },
 };
 
 /** A saved theme name. Anything unknown, including the retro and cartoon themes of earlier versions, becomes the default. */
 export function parseTheme(raw: unknown): Theme {
+	if (raw === "obsidian-runner") return "folder-runner"; // the runner theme's id up to 0.1.1
 	return (THEMES as readonly unknown[]).includes(raw) ? (raw as Theme) : "default";
 }
 

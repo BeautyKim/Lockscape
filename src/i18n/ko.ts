@@ -123,7 +123,7 @@ const ko: Strings = {
 	themeTerminal: "개발자 터미널",
 	themeSnake: "게임보이 스네이크 (게임)",
 	themeBreakout: "아케이드 벽돌깨기 (게임)",
-	themeRunner: "옵시디언 러너 (게임)",
+	themeRunner: "폴더 러너 (게임)",
 	themeAuto: "테마 기본",
 	animGlow: "마우스 조명",
 	animTrail: "마우스 궤적",

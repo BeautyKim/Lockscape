@@ -103,7 +103,7 @@ function isFormControl(el: Element | null): boolean {
 /** Themes that draw their padlock as pixel art instead of the icon set's line icon. */
 const PIXEL_LOCKS: Partial<Record<Theme, PixelPalette>> = {
 	win95: { o: "#000000", s: "#808080", f: "#c0c0c0", k: "#000000" },
-	"obsidian-runner": { o: "#d1d5db", s: "#6b7280", f: "#f3f4f6", k: "#374151" },
+	"folder-runner": { o: "#d1d5db", s: "#6b7280", f: "#f3f4f6", k: "#374151" },
 	"gameboy-snake": { o: "#9bbc0f", s: "#5f7f1a", f: "#8bac0f", k: "#1b3220" },
 };
 
@@ -630,7 +630,7 @@ class OverlayView {
 		this.baseTitle = text.title ?? this.t.lockedTitle;
 		if (!this.root.classList.contains("is-unlocking")) this.drawIcon(false);
 		this.input.placeholder = text.placeholder === "none" ? " " : text.placeholder === "english" ? "password" : this.t.placeholder;
-		this.chromeTitleEl.textContent = a.theme === "win95" ? "Obsidian" : a.theme === "terminal" ? "obsidian — zsh" : "";
+		this.chromeTitleEl.textContent = a.theme === "win95" ? "Lockscape" : a.theme === "terminal" ? "lockscape — zsh" : "";
 		r.classList.toggle("has-recovery", a.hasRecovery);
 		if (!a.hasRecovery && this.recoveryOn) this.setRecovery(false);
 		this.refreshLabels();

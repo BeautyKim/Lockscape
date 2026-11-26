@@ -6,7 +6,7 @@ Anything the settings do not cover can be changed from an Obsidian CSS snippet (
 
 | Hook | Meaning |
 |---|---|
-| `.vault-lock-overlay` | root; attribute `data-theme="default"` · `win95` · `terminal` · `gameboy-snake` · `neon-breakout` · `obsidian-runner`; modifier classes: `is-game`, `has-image`, `has-video`, `hover-reveal`, `is-preview`, `is-cover`, `is-error`, `pos-top`, `pos-bottom`, `shape-round/pill/square`, `no-icon`, `custom-title` |
+| `.vault-lock-overlay` | root; attribute `data-theme="default"` · `win95` · `terminal` · `gameboy-snake` · `neon-breakout` · `folder-runner`; modifier classes: `is-game`, `has-image`, `has-video`, `hover-reveal`, `is-preview`, `is-cover`, `is-error`, `pos-top`, `pos-bottom`, `shape-round/pill/square`, `no-icon`, `custom-title` |
 | `.vault-lock-game` · `.vault-lock-game-canvas` | the game theme's canvas and its frame (hidden in the other themes); `--vl-game-reserve` is the height the rest of the screen needs, the canvas shrinks to fit a short window |
 | `.vault-lock-stage` · `.vault-lock-clock` · `.vault-lock-time` · `.vault-lock-date` | the centred column and the clock |
 | `.vault-lock-card` · `.vault-lock-icon` · `.vault-lock-title` · `.vault-lock-form` · `.vault-lock-input` · `.vault-lock-button` · `.vault-lock-message` | the lock card |

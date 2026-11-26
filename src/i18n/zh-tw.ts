@@ -123,7 +123,7 @@ const zhTW: Strings = {
 	themeTerminal: "開發者終端機",
 	themeSnake: "掌機貪食蛇 (遊戲)",
 	themeBreakout: "街機打磚塊 (遊戲)",
-	themeRunner: "黑曜石跑酷 (遊戲)",
+	themeRunner: "資料夾跑酷 (遊戲)",
 	themeAuto: "主題預設",
 	animGlow: "滑鼠聚光燈",
 	animTrail: "滑鼠軌跡",

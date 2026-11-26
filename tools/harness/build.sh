@@ -3,7 +3,7 @@
 # rendered in a plain browser at any viewport size. Usage (from the repo root):
 #   tools/harness/build.sh && (cd tools/harness && python3 -m http.server 8765)
 #   open http://127.0.0.1:8765/frame.html?w=390&h=760&lang=ko&vl=gameboy-snake&todos=1
-# Query parameters are read in entry.ts (lang, vl=default|win95|terminal|gameboy-snake|neon-breakout|obsidian-runner, anim, image, video, todos, ...).
+# Query parameters are read in entry.ts (lang, vl=default|win95|terminal|gameboy-snake|neon-breakout|folder-runner, anim, image, video, todos, ...).
 # Put your own img-<name>.jpg / <name>.mp4 next to index.html to test photo and video backgrounds.
 set -e
 cd "$(dirname "$0")/../.."

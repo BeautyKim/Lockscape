@@ -123,7 +123,7 @@ const zh: Strings = {
 	themeTerminal: "开发者终端",
 	themeSnake: "掌机贪吃蛇 (游戏)",
 	themeBreakout: "街机打砖块 (游戏)",
-	themeRunner: "黑曜石跑酷 (游戏)",
+	themeRunner: "文件夹跑酷 (游戏)",
 	themeAuto: "主题默认",
 	animGlow: "鼠标聚光灯",
 	animTrail: "鼠标轨迹",

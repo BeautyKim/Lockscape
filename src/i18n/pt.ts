@@ -125,7 +125,7 @@ const pt: Strings = {
 	themeTerminal: "Terminal do desenvolvedor",
 	themeSnake: "Snake portátil (jogo)",
 	themeBreakout: "Quebra-blocos arcade (jogo)",
-	themeRunner: "Obsidian Runner (jogo)",
+	themeRunner: "Folder Runner (jogo)",
 	themeAuto: "Padrão do tema",
 	animGlow: "Holofote do cursor",
 	animTrail: "Rastro do cursor",
