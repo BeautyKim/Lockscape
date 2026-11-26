@@ -1,4 +1,4 @@
-// usage: node cdp.mjs <port> eval '<js expr>' | shot <file.png> [w h]
+// usage: node cdp.mjs <port> eval '<js expr>' | shot <file.png> [w h] | press <key> <code> <vk> [hold-ms] | key <char> | move <x> <y> | path "x,y;x,y" [ms]
 import fs from "node:fs";
 const [port, cmd, arg, w, h] = process.argv.slice(2);
 const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -24,6 +24,14 @@ if (cmd === "eval") {
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: arg, text: arg });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: arg });
   console.log("typed", arg);
+} else if (cmd === "press") {
+  // press <key> <code> <windowsVirtualKeyCode> [hold-ms]: a real key with its `code`, as a keyboard sends it (e.g. press ArrowLeft ArrowLeft 37)
+  const [key, code, vk, hold] = [arg, w, h, process.argv[7]];
+  const text = key.length === 1 ? key : key === "Enter" ? "\r" : undefined; // Enter needs its character, or a form is not submitted
+  await send("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", key, code, windowsVirtualKeyCode: +vk, text });
+  if (hold) await new Promise((r) => setTimeout(r, +hold));
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: +vk });
+  console.log("pressed", key);
 } else if (cmd === "shot") {
   if (w && h) { await send("Emulation.setDeviceMetricsOverride", { width: +w, height: +h, deviceScaleFactor: 2, mobile: false }); await new Promise((r) => setTimeout(r, 600)); }
   const r = await send("Page.captureScreenshot", { format: "png" });

@@ -1,13 +1,17 @@
-import { setIcon } from "obsidian";
-import { palette, resolveColor, themeAccent } from "./color";
-import { PointerFx, type FxTheme, type PointerFxKind } from "./pointerfx";
-import { digitSvg } from "./segments";
+import { Scope, setIcon, type Keymap } from "obsidian";
+import { inkFor, palette, resolveColor, themeAccent } from "./color";
+import { PointerFx, type PointerFxKind } from "./pointerfx";
+import { pixelLock, type PixelPalette } from "./pixelicons";
+import { buildDesktop } from "./desktopicons";
+import { pixelSvg, runsOf } from "./pixeltext";
+import { GameHost, createGame } from "./games";
+import { THEME_TEXT, gameOf, type GameId, type HighScores, type Theme } from "./themes";
 import { fmt, type Strings } from "./i18n";
+import { clipChars } from "./text";
 
 export type UnlockResult = { ok: true } | { ok: false; message: string; retryAt?: number };
 
 export type AnimationKind = "none" | "aurora" | "fireflies" | "snow" | "glow" | "trail" | "orbs";
-export type Theme = "default" | "retro" | "cartoon";
 export type Position = "top" | "center" | "bottom";
 export type FontStyle = "auto" | "sans" | "serif" | "mono" | "rounded"; // auto = the theme decides
 export type FieldShape = "auto" | "rounded" | "pill" | "square"; // auto = the theme decides
@@ -37,6 +41,7 @@ export interface Appearance {
 	showTodos: boolean;
 	hoverReveal: boolean; // hide the password field until hover / key press / tap
 	theme: Theme;
+	highScores: HighScores; // best score of each offline game theme
 	titleMode: TitleMode;
 	customTitle: string; // replaces the default "Locked" text when non-empty
 	showIcon: boolean;
@@ -48,11 +53,15 @@ export interface Appearance {
 	textColor: string; // "" = automatic, else #rrggbb
 	accentColor: string; // "" = theme accent, else #rrggbb
 	locale: string; // BCP-47 tag for Intl (e.g. "ko", "zh-TW")
+	hasRecovery: boolean; // a recovery key exists: show "forgot your password?"
 }
+
+/** What the typed text is: the password, or the recovery key. */
+export type SubmitKind = "password" | "recovery";
 
 export interface LockScreenHooks {
 	/** Verify a password. Rate limiting lives in the caller. */
-	submit(password: string): Promise<UnlockResult>;
+	submit(password: string, kind: SubmitKind): Promise<UnlockResult>;
 	/** Epoch ms until which attempts are refused (0 = no wait). */
 	getRetryAt(): number;
 	/** Every document that shows vault content (main window + popout windows). */
@@ -62,7 +71,13 @@ export interface LockScreenHooks {
 	setTodos(todos: Todo[]): void;
 	/** The lock screen is showing (true) / gone (false). Used to shrink and restore the app window. */
 	onWindow(active: boolean): void;
-	onUnlocked(): void;
+	onUnlocked(kind: SubmitKind): void;
+	/** A game round ended with a new best. The caller keeps it (data.json). */
+	onHighScore(game: GameId, score: number): void;
+	/** The lock engaged. The caller closes anything the owner left open (e.g. the password dialog). */
+	onLock(): void;
+	/** Obsidian's keymap. The overlay pushes its own scope here so hotkeys do not fire behind the lock. */
+	keymap: Keymap;
 }
 
 type Mode = "off" | "cover" | "locked" | "preview";
@@ -77,13 +92,31 @@ const FONT_STACKS: Record<Exclude<FontStyle, "auto">, string> = {
 const UNLOCK_MS = 520; // padlock opens (360 ms), then the screen fades (260 ms, overlapping)
 
 const POINTER_KINDS: AnimationKind[] = ["glow", "trail", "orbs"];
-const FX_COLORS: Record<Exclude<Theme, "default">, string[]> = {
-	retro: ["#ff3df2", "#20e6ff", "#ffe94a", "#7cff4f"],
-	cartoon: ["#ffd93b", "#ff4d4d", "#2f9bff", "#ffffff"],
+
+/** A text field the person is typing in (e.g. the to-do input): printable keys belong to it, not to the hidden password field. */
+function isFormControl(el: Element | null): boolean {
+	if (!el) return false;
+	if (el.tagName === "TEXTAREA" || el.tagName === "SELECT") return true;
+	return el.tagName === "INPUT" && !["checkbox", "radio", "button", "submit"].includes((el as HTMLInputElement).type);
+}
+
+/** Themes that draw their padlock as pixel art instead of the icon set's line icon. */
+const PIXEL_LOCKS: Partial<Record<Theme, PixelPalette>> = {
+	win95: { o: "#000000", s: "#808080", f: "#c0c0c0", k: "#000000" },
+	"obsidian-runner": { o: "#d1d5db", s: "#6b7280", f: "#f3f4f6", k: "#374151" },
+	"gameboy-snake": { o: "#9bbc0f", s: "#5f7f1a", f: "#8bac0f", k: "#1b3220" },
 };
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 const rnd = (min: number, max: number) => min + Math.random() * (max - min);
+
+/** "wed nov 25 16:30": the fake "last login" line of the terminal theme. English and lower case on purpose. */
+function loginStamp(d: Date): string {
+	const wd = d.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase();
+	const mon = d.toLocaleDateString("en-US", { month: "short" }).toLowerCase();
+	const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+	return `${wd} ${mon} ${d.getDate()} ${hm}`;
+}
 
 function newId(): string {
 	return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -113,10 +146,25 @@ class OverlayView {
 	private readonly titleEl: HTMLElement;
 	private readonly iconEl: HTMLElement;
 	private readonly slotObserver: ResizeObserver | null;
+	private readonly keyScope: Scope;
+	private readonly onWinFocus: () => void;
+	private scopePushed = false;
 	private deniedTimer = 0;
 	private fx: PointerFx | null = null;
 	private theme: Theme = "default";
-	private lastParts = "";
+	private unlockLabel = "";
+	private recoveryOn = false;
+	private forgotBtn!: HTMLButtonElement;
+	private baseTitle = "";
+	private unlockedTitle = "";
+	private readonly chromeTitleEl: HTMLElement;
+	private readonly loginEl: HTMLElement; // terminal theme: "last login: ..." line
+	/** Where a theme's offline game draws (empty and hidden for the other themes). */
+	readonly gameEl: HTMLElement;
+	/** Windows 95 wallpaper icons (decoration). Empty and hidden in every other theme. */
+	private readonly desktopEl: HTMLElement;
+	private host: GameHost | null = null; // the running offline game of a game theme, if any
+	private gameId: GameId | null = null;
 	private readonly onVis: () => void;
 	private imageUrl: string | null = null;
 	private imageLoaded = false;
@@ -135,12 +183,14 @@ class OverlayView {
 		readonly doc: Document,
 		private readonly t: Strings,
 		private readonly handlers: {
-			submit: (pw: string) => void;
+			submit: (pw: string, kind: SubmitKind) => void;
 			closePreview: () => void;
+			highScore: (game: GameId, score: number) => void;
 			addTodo: (text: string) => void;
 			toggleTodo: (id: string) => void;
 			deleteTodo: (id: string) => void;
 		},
+		private readonly keymap: Keymap,
 	) {
 		this.win = doc.defaultView ?? window;
 		const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLElementTagNameMap[K] => {
@@ -187,24 +237,32 @@ class OverlayView {
 		const button = (this.button = el("button", "vault-lock-button mod-cta"));
 		button.type = "submit";
 		button.textContent = t.unlock;
-		// Shown by the retro/cartoon themes in place of the hidden field ("hover reveal"); decorative only.
-		const revealHint = el("div", "vault-lock-reveal-hint");
-		revealHint.setAttribute("aria-hidden", "true");
-		// The animated text sits in an inner span: a CSS animation on `opacity` would override the rule that hides the hint.
-		const revealText = el("span", "vault-lock-reveal-text");
-		revealText.textContent = t.pressAnyKey;
-		revealHint.append(revealText);
-		form.append(input, button, revealHint);
+		this.unlockLabel = t.unlock;
+		this.baseTitle = t.lockedTitle;
+		this.unlockedTitle = t.unlocked;
+		// "$ password:" shown only by the terminal theme, in front of the field; decorative.
+		const prompt = el("span", "vault-lock-prompt");
+		prompt.setAttribute("aria-hidden", "true");
+		prompt.textContent = "$ password:";
+		form.append(prompt, input, button);
 		form.addEventListener("submit", (e) => {
 			e.preventDefault();
-			handlers.submit(input.value);
+			handlers.submit(input.value, this.recoveryOn ? "recovery" : "password");
 		});
 
 		const message = (this.message = el("div", "vault-lock-message"));
 		message.setAttribute("aria-live", "polite");
 		this.hint = el("div", "vault-lock-hint");
 		this.hint.textContent = t.previewClose;
-		card.append(icon, title, form, message, this.hint);
+		const forgot = (this.forgotBtn = el("button", "vault-lock-forgot"));
+		forgot.type = "button";
+		forgot.textContent = t.forgot;
+		forgot.addEventListener("click", () => {
+			this.setRecovery(!this.recoveryOn);
+			input.value = "";
+			input.focus({ preventScroll: true });
+		});
+		card.append(icon, title, form, forgot, message, this.hint);
 
 		// to-do panel (static structure; only the list is re-rendered)
 		this.todosEl = el("div", "vault-lock-todos");
@@ -231,12 +289,43 @@ class OverlayView {
 		});
 		this.todosEl.append(this.todoList, addForm);
 
-		stage.append(this.clockEl, card, this.todosEl);
-		root.append(this.bg, this.anim, stage);
+		// Window chrome of the Windows 95 / terminal / default themes: three dots, a title, three window buttons.
+		// All decorative (the grip strip on top moves the window); each theme shows only the parts it needs.
+		const chrome = el("div", "vault-lock-chrome");
+		chrome.setAttribute("aria-hidden", "true");
+		const dots = el("span", "vl-dots");
+		for (let n = 0; n < 3; n++) dots.append(el("i", "vl-dot"));
+		const chromeTitle = (this.chromeTitleEl = el("span", "vl-chrome-title"));
+		const winBtns = el("span", "vl-winbtns");
+		for (const k of ["min", "max", "close"]) winBtns.append(el("i", `vl-winbtn vl-wb-${k}`));
+		chrome.append(dots, chromeTitle, winBtns);
+
+		// Terminal theme: a few lines of fake log above the prompt.
+		const log = el("div", "vault-lock-log");
+		log.setAttribute("aria-hidden", "true");
+		this.loginEl = el("div", "vl-log-line");
+		const l2 = el("div", "vl-log-line");
+		l2.textContent = "[vault] status: locked";
+		const l3 = el("div", "vl-log-line");
+		l3.textContent = "[system] lockscape ready";
+		log.append(this.loginEl, l2, l3);
+
+		this.gameEl = el("div", "vault-lock-game");
+
+		const hint = el("div", "vault-lock-cover-hint");
+		hint.textContent = t.hideHint;
+		stage.append(chrome, this.clockEl, log, this.gameEl, card, hint, this.todosEl);
+		// The overlay covers Obsidian's own title bar, which is what drags a frameless window. A transparent strip of the
+		// same height gives the grip back (only where the window is frameless; see styles.css), so the shrunk lock window can be moved.
+		const drag = el("div", "vault-lock-drag");
+		drag.setAttribute("aria-hidden", "true");
+		this.desktopEl = el("div", "vault-lock-desktop");
+		this.desktopEl.setAttribute("aria-hidden", "true");
+		root.append(this.bg, this.anim, this.desktopEl, stage, drag);
 
 		// Keep keystrokes from reaching Obsidian's hotkey handling while locked.
 		root.addEventListener("keydown", (e) => {
-			if (e.key === "Escape" && root.classList.contains("is-preview")) handlers.closePreview();
+			if (root.classList.contains("is-manual") ? ["Escape", "Enter", " "].includes(e.key) : e.key === "Escape" && root.classList.contains("is-preview")) handlers.closePreview();
 			e.stopPropagation();
 			// Hidden password field: the first printable key moves focus into it, and the browser then
 			// types that very key into the field (focus changes during keydown still receive the input).
@@ -245,6 +334,7 @@ class OverlayView {
 				!root.classList.contains("is-preview") &&
 				!root.classList.contains("is-cover") &&
 				doc.activeElement !== input &&
+				!isFormControl(doc.activeElement) &&
 				e.key.length === 1 &&
 				!e.ctrlKey &&
 				!e.metaKey &&
@@ -253,6 +343,30 @@ class OverlayView {
 				input.focus({ preventScroll: true });
 			}
 		});
+		// Obsidian reads hotkeys in a capture listener on `window`, so it runs before any handler on this overlay
+		// (stopPropagation above is too late). Pushing our own scope with no parent makes it the only one consulted:
+		// every key aimed outside the overlay is swallowed (new note, command palette, keys of an open dialog),
+		// while typing into the overlay's own fields passes through untouched.
+		this.keyScope = new Scope();
+		this.keyScope.register(null, null, (e) => {
+			if (this.root.contains(e.target as Node | null)) return undefined;
+			this.root.focus({ preventScroll: true }); // focus had left the overlay; the next key lands inside again
+			return false;
+		});
+		// Tab past the last control lands on the (inert) page behind: bring focus back right away.
+		root.addEventListener("focusout", (e) => {
+			const to = e.relatedTarget as Node | null;
+			if (to && root.contains(to)) return;
+			this.win.setTimeout(() => {
+				if (root.isConnected && doc.hasFocus() && !root.contains(doc.activeElement)) root.focus({ preventScroll: true });
+			}, 0);
+		});
+		// A popout only becomes Obsidian's active window when it gains focus, and the scope goes on the active window's stack.
+		this.onWinFocus = () => {
+			this.pushKeyScope();
+			this.win.setTimeout(() => this.pushKeyScope(), 0);
+		};
+		this.win.addEventListener("focus", this.onWinFocus);
 		// Touch has no hover: tapping the lock area focuses the (hidden) field, which reveals it and opens the keyboard.
 		card.addEventListener("pointerdown", (e) => {
 			if (e.pointerType !== "touch" || !root.classList.contains("hover-reveal")) return;
@@ -260,10 +374,11 @@ class OverlayView {
 		});
 		// Preview mode: click on the backdrop (not on the to-do panel) closes it.
 		root.addEventListener("click", (e) => {
-			if (!root.classList.contains("is-preview")) return;
+			if (!root.classList.contains("is-preview") && !root.classList.contains("is-manual")) return;
 			// composedPath() is fixed when the click starts. Using e.target.closest() would misfire when a
 			// handler (e.g. delete) re-renders the list and detaches the clicked button before this runs.
-			if (e.composedPath().includes(this.todosEl)) return;
+			const path = e.composedPath();
+			if (path.includes(this.todosEl) || path.includes(this.gameEl)) return; // clicking the game plays it
 			handlers.closePreview();
 		});
 
@@ -303,6 +418,7 @@ class OverlayView {
 		const body = this.doc.body;
 		if (!this.root.isConnected) body.append(this.root);
 		this.enforce();
+		this.pushKeyScope();
 		this.observer.observe(body, { childList: true });
 		this.onViewport?.();
 	}
@@ -310,33 +426,70 @@ class OverlayView {
 	private enforce(): void {
 		const body = this.doc.body;
 		if (!this.root.isConnected) body.append(this.root);
+		let added = false;
 		for (const child of Array.from(body.children)) {
 			if (child === this.root || this.inerted.has(child)) continue;
+			added = true;
 			if ((child as HTMLElement).inert) continue; // was already inert; leave it alone
 			(child as HTMLElement).inert = true;
 			this.inerted.add(child);
 		}
+		// A dialog that opened after we locked pushed its own key scope on top of ours; take the top back.
+		if (added) this.pushKeyScope();
+	}
+
+	/** Make our scope the top of this window's scope stack. Does nothing for a window Obsidian does not consider active. */
+	private pushKeyScope(): void {
+		if (!this.root.isConnected || this.win !== activeWindow) return;
+		if (this.scopePushed) this.keymap.popScope(this.keyScope);
+		this.keymap.pushScope(this.keyScope);
+		this.scopePushed = true;
+	}
+
+	private popKeyScope(): void {
+		if (!this.scopePushed) return;
+		this.scopePushed = false;
+		this.keymap.popScope(this.keyScope);
+	}
+
+	/** The padlock: pixel art for the themes that have it, the icon set's line icon otherwise. */
+	private drawIcon(open: boolean): void {
+		const pixel = PIXEL_LOCKS[this.theme];
+		if (pixel) {
+			this.iconEl.replaceChildren(pixelLock(this.doc, open, pixel));
+			return;
+		}
+		setIcon(this.iconEl, open ? "lock-open" : "lock");
+		if (open && !this.iconEl.querySelector("svg")) setIcon(this.iconEl, "unlock"); // older icon set
+	}
+
+	/** Undo setUnlocking() when the screen is locked again before it went away. */
+	cancelUnlocking(): void {
+		this.root.classList.remove("is-unlocking");
+		this.titleEl.textContent = this.baseTitle;
+		this.drawIcon(false);
+		this.setBusy(false);
 	}
 
 	/** Success feedback: the padlock opens and the text says so; the caller removes the overlay shortly after. */
 	setUnlocking(): void {
 		this.root.classList.add("is-unlocking");
+		this.host?.freeze(); // the last frame stays for the fade; nothing runs or listens any more
 		this.input.disabled = true;
 		this.button.disabled = true;
-		setIcon(this.iconEl, "lock-open");
-		if (!this.iconEl.querySelector("svg")) setIcon(this.iconEl, "unlock"); // older icon set
-		this.titleEl.textContent = this.t.unlocked;
+		this.drawIcon(true);
+		this.titleEl.textContent = this.unlockedTitle;
 		this.button.textContent = "✓"; // not "checking…" any more; the label is restored by detach() -> setBusy(false)
 	}
 
 	/** Wrong password: the card shakes once. */
 	setDenied(): void {
 		const r = this.root;
-		r.classList.remove("is-denied");
+		r.classList.remove("is-denied", "is-error");
 		void r.offsetWidth; // restart the animation if it is still running
-		r.classList.add("is-denied");
+		r.classList.add("is-denied", "is-error");
 		this.win.clearTimeout(this.deniedTimer);
-		this.deniedTimer = this.win.setTimeout(() => r.classList.remove("is-denied"), 500);
+		this.deniedTimer = this.win.setTimeout(() => r.classList.remove("is-denied", "is-error"), 350); // = the 0.35 s shake in styles.css
 	}
 
 	private reducedMotion(): boolean {
@@ -349,12 +502,14 @@ class OverlayView {
 
 	detach(): void {
 		this.win.clearTimeout(this.deniedTimer);
-		this.root.classList.remove("is-denied", "is-unlocking");
-		if (this.iconEl.querySelector("svg") && this.root.isConnected) setIcon(this.iconEl, "lock"); // back to the closed padlock
+		this.root.classList.remove("is-denied", "is-error", "is-unlocking");
+		if (this.iconEl.querySelector("svg") && this.root.isConnected) this.drawIcon(false); // back to the closed padlock
 		this.fx?.destroy();
 		this.fx = null;
+		this.disposeGame(); // frame loop, key and pointer listeners, canvas: gone with the screen
 		this.clearVideo(); // free the decoder while nothing is shown; re-created on the next show
 		this.observer.disconnect();
+		this.popKeyScope();
 		for (const el of this.inerted) (el as HTMLElement).inert = false;
 		this.inerted.clear();
 		this.root.remove();
@@ -368,6 +523,7 @@ class OverlayView {
 	destroy(): void {
 		this.detach();
 		this.slotObserver?.disconnect();
+		this.win.removeEventListener("focus", this.onWinFocus);
 		this.doc.removeEventListener("visibilitychange", this.onVis);
 		const vv = this.win.visualViewport;
 		if (vv && this.onViewport) {
@@ -376,13 +532,79 @@ class OverlayView {
 		}
 	}
 
-	setMode(mode: Mode): void {
+	/** Switch the field between password entry and recovery-key entry ("Forgot your password?"). */
+	setRecovery(on: boolean): void {
+		this.recoveryOn = on;
+		this.root.classList.toggle("is-recovery", on);
+		this.refreshLabels();
+	}
+
+	/** Placeholder, accessible name, button text and link text for the current entry kind. Themes may reword the password ones. */
+	private refreshLabels(): void {
+		const busy = this.root.classList.contains("is-busy") || this.root.classList.contains("is-unlocking");
+		if (this.recoveryOn) {
+			this.input.placeholder = this.t.recoverPlaceholder;
+			this.input.setAttribute("aria-label", this.t.recoverPlaceholder);
+			this.input.autocapitalize = "characters";
+			if (!busy) this.button.textContent = this.t.recoverUnlock;
+			this.forgotBtn.textContent = this.t.backToPassword;
+		} else {
+			this.input.setAttribute("aria-label", this.t.placeholder);
+			this.input.autocapitalize = "off";
+			if (!busy) this.button.textContent = this.unlockLabel;
+			this.forgotBtn.textContent = this.t.forgot;
+			const text = THEME_TEXT[this.theme];
+			this.input.placeholder = text.placeholder === "none" ? " " : text.placeholder === "english" ? "password" : this.t.placeholder;
+		}
+	}
+
+	setMode(mode: Mode, manual = false): void {
 		const cover = mode === "cover";
 		const preview = mode === "preview";
+		this.root.classList.toggle("is-manual", cover && manual);
 		this.root.classList.toggle("is-cover", cover);
 		this.root.classList.toggle("is-preview", preview);
 		this.input.disabled = cover || preview;
 		this.button.disabled = cover || preview;
+		// The game runs only while the screen is really up (locked or previewed), never under the grace-period cover.
+		this.host?.setActive(mode === "locked" || preview);
+	}
+
+	/** Another window's game set a new best: this window's game shows it too. */
+	setHighScore(game: GameId, score: number): void {
+		if (this.gameId === game) this.host?.setHighScore(score);
+	}
+
+	/** Start the game of a game theme, stop and remove the previous one when the theme changed. */
+	private syncGame(a: Appearance): void {
+		const id = gameOf(a.theme);
+		if (id === this.gameId) {
+			if (id) this.host?.setHighScore(a.highScores[id]);
+			return;
+		}
+		this.disposeGame();
+		if (!id) return;
+		this.gameId = id;
+		this.host = new GameHost(createGame(id), {
+			doc: this.doc,
+			win: this.win,
+			mount: this.gameEl,
+			root: this.root,
+			highScore: a.highScores[id],
+			onHighScore: (score) => this.handlers.highScore(id, score),
+			focusField: () => {
+				if (this.input.disabled) return false;
+				this.input.focus({ preventScroll: true });
+				return this.doc.activeElement === this.input;
+			},
+		});
+	}
+
+	private disposeGame(): void {
+		this.host?.destroy();
+		this.host = null;
+		this.gameId = null;
+		this.gameEl.replaceChildren();
 	}
 
 	/** Apply the cosmetic settings: background, animation, text, clock, layout and widgets. */
@@ -392,9 +614,26 @@ class OverlayView {
 
 		const r = this.root;
 		this.theme = a.theme;
-		r.classList.toggle("vl-theme-retro", a.theme === "retro");
-		r.classList.toggle("vl-theme-cartoon", a.theme === "cartoon");
-		r.classList.toggle("hover-reveal", a.hoverReveal);
+		const game = gameOf(a.theme);
+		const text = THEME_TEXT[a.theme];
+		r.dataset.theme = a.theme;
+		r.classList.toggle("is-game", game !== null);
+		this.syncGame(a);
+		// the wallpaper icons exist only while the Windows 95 theme is on
+		if (a.theme === "win95") {
+			if (this.desktopEl.childElementCount === 0) buildDesktop(this.doc, this.desktopEl);
+		} else if (this.desktopEl.childElementCount > 0) this.desktopEl.replaceChildren();
+		// The game themes keep the field visible: Space and the arrow keys belong to the game, not to "press any key".
+		r.classList.toggle("hover-reveal", a.hoverReveal && game === null);
+		this.unlockLabel = text.unlock ?? this.t.unlock;
+		this.unlockedTitle = text.unlocked ?? this.t.unlocked;
+		this.baseTitle = text.title ?? this.t.lockedTitle;
+		if (!this.root.classList.contains("is-unlocking")) this.drawIcon(false);
+		this.input.placeholder = text.placeholder === "none" ? " " : text.placeholder === "english" ? "password" : this.t.placeholder;
+		this.chromeTitleEl.textContent = a.theme === "win95" ? "Obsidian" : a.theme === "terminal" ? "obsidian — zsh" : "";
+		r.classList.toggle("has-recovery", a.hasRecovery);
+		if (!a.hasRecovery && this.recoveryOn) this.setRecovery(false);
+		this.refreshLabels();
 		r.classList.toggle("title-auto", a.titleMode === "auto");
 		r.classList.toggle("title-hide", a.titleMode === "hide");
 		r.classList.toggle("custom-title", a.customTitle !== "");
@@ -404,13 +643,16 @@ class OverlayView {
 		r.classList.toggle("shape-round", a.fieldShape === "rounded");
 		r.classList.toggle("shape-pill", a.fieldShape === "pill");
 		r.classList.toggle("shape-square", a.fieldShape === "square");
-		this.titleEl.textContent = a.customTitle || this.t.lockedTitle; // textContent only: never parsed as HTML
+		this.titleEl.textContent = a.customTitle || this.baseTitle; // textContent only: never parsed as HTML
 
 		// Public CSS variables (also documented for Obsidian CSS snippets). Unset = automatic.
 		const setVar = (name: string, value: string) =>
 			value ? r.style.setProperty(name, value) : r.style.removeProperty(name);
 		setVar("--vl-text", a.textColor);
 		setVar("--vl-accent", a.accentColor);
+		// text on a button painted with the chosen accent: white on dark colours, near-black on bright ones
+		const accentRgb = a.accentColor ? resolveColor(this.doc, a.accentColor) : null;
+		setVar("--vl-on-accent", accentRgb ? inkFor(accentRgb) : "");
 		r.style.setProperty("--vl-clock-scale", String(clamp(a.clockScale, 60, 160) / 100));
 		// "auto" font: leave the variables unset so the theme's own typography applies
 		if (a.clockFont === "auto") {
@@ -444,7 +686,7 @@ class OverlayView {
 			this.timeFmt = new Intl.DateTimeFormat(undefined, timeOpts);
 			this.dateFmt = new Intl.DateTimeFormat(undefined, dateOpts);
 		}
-		this.lastTime = this.lastDate = this.lastParts = "";
+		this.lastTime = this.lastDate = "";
 		this.updateClock(new Date());
 
 		// to-dos
@@ -476,7 +718,7 @@ class OverlayView {
 	private setVideo(url: string | null): void {
 		const reduced = this.reducedMotion();
 		if (url === this.videoUrl && this.video) {
-			if (!reduced) void this.video.play().catch(() => undefined);
+			if (!reduced && !this.doc.hidden) void this.video.play().catch(() => undefined);
 			return;
 		}
 		this.clearVideo();
@@ -490,7 +732,7 @@ class OverlayView {
 		v.muted = true; // required for autoplay; the lock screen never plays sound
 		v.loop = true;
 		v.playsInline = true;
-		v.autoplay = !reduced; // reduced motion: show the first frame, do not play
+		v.autoplay = !reduced && !this.doc.hidden; // reduced motion or a hidden window: show the first frame, do not play
 		v.preload = "auto";
 		v.controls = false;
 		v.disablePictureInPicture = true;
@@ -500,7 +742,7 @@ class OverlayView {
 			this.videoAutoDim = this.legibilityDim(v);
 			this.videoLoaded = true;
 			this.updateMedia();
-			if (!reduced) void v.play().catch(() => undefined);
+			if (!reduced && !this.doc.hidden) void v.play().catch(() => undefined);
 		});
 		v.src = url;
 		this.bg.prepend(v);
@@ -561,8 +803,8 @@ class OverlayView {
 		// Pointer-following effects: one canvas, drawn in the active theme's style; skipped for reduced motion.
 		if (POINTER_KINDS.includes(a.animation)) {
 			if (!this.reducedMotion()) {
-				const palette4 = a.theme === "default" ? [...colors, colors[0]] : FX_COLORS[a.theme];
-				this.fx = new PointerFx(this.doc, this.win, this.anim, a.animation as PointerFxKind, a.theme as FxTheme, palette4);
+				const palette4 = [...colors, colors[0]];
+				this.fx = new PointerFx(this.doc, this.win, this.anim, a.animation as PointerFxKind, palette4);
 			}
 			return;
 		}
@@ -623,47 +865,40 @@ class OverlayView {
 		}
 	}
 
+	/** The time as text, or (Windows 95) digits and colons as pixel art with the rest, such as "오후", left as text. */
+	private drawTime(time: string): void {
+		if (this.theme !== "win95") {
+			this.timeEl.textContent = time;
+			this.timeEl.removeAttribute("role");
+			this.timeEl.removeAttribute("aria-label");
+			return;
+		}
+		const parts = runsOf(time).map((run) => {
+			if (run.pixel) return pixelSvg(this.doc, run.text);
+			const span = this.doc.createElement("span");
+			span.className = "vl-px-text";
+			span.textContent = run.text;
+			return span;
+		});
+		this.timeEl.replaceChildren(...parts);
+		// the drawn digits are hidden from screen readers; the element says the real time
+		this.timeEl.setAttribute("role", "img");
+		this.timeEl.setAttribute("aria-label", time);
+	}
+
 	updateClock(now: Date): void {
 		if (!this.timeFmt || !this.dateFmt) return;
 		const time = this.timeFmt.format(now);
 		if (time !== this.lastTime) {
 			this.lastTime = time;
-			if (this.theme === "retro") this.renderSegmentClock(now);
-			else this.timeEl.textContent = time;
+			this.drawTime(time);
+			if (this.theme === "terminal") this.loginEl.textContent = `last login: ${loginStamp(now)}`;
 		}
 		const date = this.dateFmt.format(now);
 		if (date !== this.lastDate) {
 			this.lastDate = date;
 			this.dateEl.textContent = date;
 		}
-	}
-
-	/** Retro theme: digits as seven-segment SVGs, the colon blinks, am/pm (any language) stays small text. */
-	private renderSegmentClock(now: Date): void {
-		const parts = this.timeFmt?.formatToParts(now) ?? [];
-		const key = parts.map((p) => p.type + p.value).join("|");
-		if (key === this.lastParts) return;
-		this.lastParts = key;
-		const doc = this.doc;
-		const nodes: Node[] = [];
-		for (const part of parts) {
-			if (part.type === "hour" || part.type === "minute" || part.type === "second") {
-				for (const ch of part.value) nodes.push(digitSvg(doc, ch));
-			} else if (part.type === "dayPeriod") {
-				const span = doc.createElement("span");
-				span.className = "vault-lock-period";
-				span.textContent = part.value;
-				nodes.push(span);
-			} else if (part.type === "literal" && part.value.includes(":")) {
-				const colon = doc.createElement("span");
-				colon.className = "vault-lock-colon";
-				colon.setAttribute("aria-hidden", "true");
-				nodes.push(colon);
-			}
-		}
-		this.timeEl.replaceChildren(...nodes);
-		this.timeEl.setAttribute("aria-label", this.lastTime); // screen readers read the real time
-		this.timeEl.setAttribute("role", "text");
 	}
 
 	renderTodos(todos: Todo[]): void {
@@ -703,7 +938,7 @@ class OverlayView {
 		this.root.classList.toggle("is-busy", busy);
 		this.input.disabled = busy;
 		this.button.disabled = busy;
-		this.button.textContent = busy ? this.t.checking : this.t.unlock;
+		this.button.textContent = busy ? this.t.checking : this.recoveryOn ? this.t.recoverUnlock : this.unlockLabel;
 	}
 
 	focus(): void {
@@ -717,11 +952,16 @@ class OverlayView {
 
 export class LockScreen {
 	private mode: Mode = "off";
+	/** The cover was asked for ("hide screen" command), not caused by leaving the app: a click or Esc takes it away, no password. */
+	private manual = false;
 	private views = new Map<Document, OverlayView>();
 	private countdown: number | null = null;
 	private clockTimer: number | null = null;
 	private busy = false;
 	private unlockTimer = 0;
+	private unlocking = false;
+	/** Where the keyboard focus was in each window before the overlay took over; given back when it goes away. */
+	private readonly savedFocus = new Map<Document, HTMLElement>();
 
 	constructor(
 		private readonly t: Strings,
@@ -736,6 +976,10 @@ export class LockScreen {
 		return this.mode === "cover";
 	}
 
+	get isManualCover(): boolean {
+		return this.mode === "cover" && this.manual;
+	}
+
 	get isPreviewing(): boolean {
 		return this.mode === "preview";
 	}
@@ -743,23 +987,51 @@ export class LockScreen {
 	/** Hide content immediately without asking for a password (grace period running). */
 	cover(): void {
 		if (this.mode === "locked") return;
+		this.rememberFocus();
 		this.mode = "cover";
 		this.render();
 	}
 
+	/** Hide the screen at once (before sharing it, say). No password: a click or Esc shows it again. */
+	hideScreen(): void {
+		if (this.mode === "locked" || this.mode === "preview") return;
+		this.rememberFocus();
+		this.manual = true;
+		this.mode = "cover";
+		this.render();
+		window.setTimeout(() => {
+			if (!this.isManualCover) return;
+			for (const v of this.views.values()) if (v.doc.hasFocus()) v.focusRoot();
+		}, 50);
+	}
+
 	lock(): void {
+		this.manual = false;
+		// Locked again while the padlock was still opening: cancel the pending release, or it would unlock us.
+		if (this.unlocking) {
+			window.clearTimeout(this.unlockTimer);
+			this.unlocking = false;
+			this.busy = false;
+			this.eachView((v) => v.cancelUnlocking());
+		}
+		this.rememberFocus();
 		this.mode = "locked";
+		this.notifyLock();
 		this.notifyWindow(true);
 		this.render();
+		this.eachView((v) => v.setRecovery(false));
 		this.startCountdown();
 		// With a hidden password field, focus the overlay (not the field) so it is not revealed unasked.
-		const preferInput = !this.hooks.getAppearance().hoverReveal;
+		// A game theme also starts on the overlay: the game is ready to play and Tab goes to the field.
+		const ap = this.hooks.getAppearance();
+		const preferInput = !ap.hoverReveal && gameOf(ap.theme) === null;
 		window.setTimeout(() => this.focusActive(preferInput), 50);
 	}
 
 	/** Show the lock screen without locking, so appearance settings can be judged. Click/Esc closes it. */
 	preview(): void {
 		if (this.mode === "locked") return;
+		this.rememberFocus();
 		this.mode = "preview";
 		this.notifyWindow(true);
 		this.render();
@@ -770,23 +1042,53 @@ export class LockScreen {
 	}
 
 	release(): void {
+		this.manual = false;
 		window.clearTimeout(this.unlockTimer);
+		this.unlocking = false;
 		this.mode = "off";
 		this.stopCountdown();
 		this.stopClock();
 		for (const view of this.views.values()) view.detach();
 		this.notifyWindow(false);
+		this.restoreFocus();
+	}
+
+	/** Remember the focused element of every window, but only when the overlay is not already up (cover -> locked keeps the first). */
+	private rememberFocus(): void {
+		if (this.mode !== "off") return;
+		this.savedFocus.clear();
+		for (const doc of this.hooks.getDocuments()) {
+			const el = doc.activeElement as HTMLElement | null;
+			if (el && el !== doc.body && el !== doc.documentElement) this.savedFocus.set(doc, el);
+		}
+	}
+
+	private restoreFocus(): void {
+		for (const [doc, el] of this.savedFocus) {
+			if (el.isConnected && typeof el.focus === "function" && doc.hasFocus()) el.focus({ preventScroll: true });
+		}
+		this.savedFocus.clear();
 	}
 
 	destroy(): void {
 		window.clearTimeout(this.unlockTimer);
 		const wasShowing = this.mode !== "off";
+		this.savedFocus.clear();
 		this.mode = "off";
 		if (wasShowing) this.notifyWindow(false);
 		this.stopCountdown();
 		this.stopClock();
 		for (const view of this.views.values()) view.destroy();
 		this.views.clear();
+	}
+
+	/** Closing the owner's open dialogs is best effort; the lock screen must come up even if it throws. */
+	private notifyLock(): void {
+		try {
+			this.hooks.onLock();
+		} catch {
+			/* the key scope already blocks the dialog's keys */
+		}
 	}
 
 	/**
@@ -820,12 +1122,16 @@ export class LockScreen {
 			let view = this.views.get(doc);
 			if (!view) {
 				view = new OverlayView(doc, this.t, {
-					submit: (pw) => void this.handleSubmit(pw),
+					submit: (pw, kind) => void this.handleSubmit(pw, kind),
 					closePreview: () => {
-						if (this.mode === "preview") this.release();
+						if (this.mode === "preview" || this.manual) this.release();
+					},
+					highScore: (game, score) => {
+						this.hooks.onHighScore(game, score);
+						this.eachView((v) => v.setHighScore(game, score));
 					},
 					addTodo: (text) => this.editTodos((list) => {
-						if (list.length < MAX_TODOS) list.push({ id: newId(), text: text.slice(0, MAX_TODO_LENGTH), done: false });
+						if (list.length < MAX_TODOS) list.push({ id: newId(), text: clipChars(text, MAX_TODO_LENGTH), done: false });
 					}),
 					toggleTodo: (id) => this.editTodos((list) => {
 						const item = list.find((x) => x.id === id);
@@ -835,12 +1141,12 @@ export class LockScreen {
 						const i = list.findIndex((x) => x.id === id);
 						if (i >= 0) list.splice(i, 1);
 					}),
-				});
+				}, this.hooks.keymap);
 				this.views.set(doc, view);
 			}
 			view.applyAppearance(appearance, todos);
 			view.attach();
-			view.setMode(this.mode);
+			view.setMode(this.mode, this.manual);
 		}
 		this.startClock();
 	}
@@ -876,25 +1182,28 @@ export class LockScreen {
 		else view?.focusRoot();
 	}
 
-	private async handleSubmit(password: string): Promise<void> {
+	private async handleSubmit(password: string, kind: SubmitKind): Promise<void> {
 		if (this.busy || this.mode !== "locked") return;
+		if (password === "") return; // an empty Enter is not an attempt and must not count as a failure
 		this.busy = true;
 		this.eachView((v) => v.setBusy(true));
 		let result: UnlockResult;
 		try {
-			result = await this.hooks.submit(password);
+			result = await this.hooks.submit(password, kind);
 		} catch {
 			result = { ok: false, message: this.t.cryptoError };
 		}
 		if (result.ok) {
 			this.stopCountdown();
+			this.unlocking = true;
 			this.eachView((v) => v.setUnlocking());
 			// let the padlock open before the overlay goes away; reduced motion skips the wait
 			const wait = this.prefersReducedMotion() ? 0 : UNLOCK_MS;
 			this.unlockTimer = window.setTimeout(() => {
+				this.unlocking = false;
 				this.busy = false;
 				this.release();
-				this.hooks.onUnlocked();
+				this.hooks.onUnlocked(kind);
 			}, wait);
 			return;
 		}

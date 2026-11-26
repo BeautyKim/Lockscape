@@ -25,6 +25,7 @@ const ls = new LockScreen(getStrings(lang), {
   getDocuments: () => [document],
   getAppearance: () => ({
     theme: (q.get("vl") ?? "default") as any,
+    highScores: { snake: Number(q.get("hs") ?? 0), breakout: Number(q.get("hs") ?? 0), runner: Number(q.get("hs") ?? 0) },
     imageUrl: q.get("image") ? `img-${q.get("image")}.jpg` : null,
     videoUrl: q.get("video") ? `${q.get("video")}.mp4` : null,
     dim: Number(q.get("dim") ?? 35), blur: Number(q.get("blur") ?? 0),
@@ -36,11 +37,15 @@ const ls = new LockScreen(getStrings(lang), {
     clockScale: Number(q.get("scale") ?? 100), clockFont: (q.get("font") ?? "auto") as any, clockWeight: Number(q.get("weight") ?? 300),
     textColor: q.get("text") ? "#" + q.get("text") : "", accentColor: q.get("accent") ? "#" + q.get("accent") : "",
     locale: lang,
+    hasRecovery: q.get("recovery") === "1",
   }),
   getTodos: () => todos,
   setTodos: (t) => { todos = t; },
   onWindow() {},
   onUnlocked() {},
+  onHighScore(game, score) { (window as any).__scores = { ...((window as any).__scores ?? {}), [game]: score }; },
+  onLock() {},
+  keymap: { pushScope() {}, popScope() {} },
 });
 if (state === "cover") ls.cover(); else if (state === "preview") ls.preview(); else ls.lock();
 if (state === "error") {

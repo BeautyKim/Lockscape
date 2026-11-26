@@ -6,3 +6,11 @@ const ICONS: Record<string,string> = {
 export function setIcon(el: HTMLElement, id: string) {
   el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[id]??""}</svg>`;
 }
+
+// Key scope stack is Obsidian's; the harness has no hotkeys, so these are inert placeholders.
+export class Scope {
+  constructor(public parent?: Scope) {}
+  register(_m: unknown, _k: unknown, _f: unknown) { return {}; }
+  unregister(_h: unknown) {}
+}
+export type Keymap = { pushScope(s: Scope): void; popScope(s: Scope): void };

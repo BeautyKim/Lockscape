@@ -43,8 +43,14 @@ interface ElectronWindow {
 	unmaximize(): void;
 }
 
+interface PowerMonitor {
+	on(event: string, listener: () => void): unknown;
+	removeListener(event: string, listener: () => void): unknown;
+}
+
 interface ElectronRemote {
 	getCurrentWindow?: () => ElectronWindow;
+	powerMonitor?: PowerMonitor;
 	screen?: { getDisplayMatching(b: Bounds): { workArea: Rect } };
 }
 
@@ -133,7 +139,9 @@ export function shrinkWindow(size: { width: number; height: number }, existing: 
 			x: Math.round(cur.x + cur.width / 2 - size.width / 2),
 			y: Math.round(cur.y + cur.height / 2 - size.height / 2),
 		};
-		w.setBounds(fitToDisplay(target), true);
+		// No animation: on macOS an animated setBounds stalls on its first frame while the window is not the active one
+		// (locking because the app lost focus is exactly that case), so the window would not shrink at all.
+		w.setBounds(fitToDisplay(target), false);
 		return saved;
 	} catch {
 		return existing;
@@ -144,9 +152,32 @@ export function restoreWindow(saved: SavedWindow): void {
 	const w = electronWindow();
 	if (!w) return;
 	try {
-		w.setBounds(fitToDisplay(saved.bounds), true);
+		w.setBounds(fitToDisplay(saved.bounds), false); // same reason: a stalled restore would leave the window small
 		if (saved.maximized) w.maximize();
 	} catch {
 		/* window gone or API changed: leave it as is */
 	}
+}
+
+/**
+ * Call `onLock` when the operating system locks the screen or goes to sleep. Uses Electron's power monitor, which the
+ * app only exposes on some builds: without it this does nothing and returns a no-op (the idle timer still applies).
+ * @returns a function that stops listening
+ */
+export function watchSystemLock(onLock: () => void): () => void {
+	const pm = remote()?.powerMonitor;
+	if (!pm || typeof pm.on !== "function" || typeof pm.removeListener !== "function") return () => {};
+	const events = ["lock-screen", "suspend"];
+	try {
+		for (const e of events) pm.on(e, onLock);
+	} catch {
+		return () => {};
+	}
+	return () => {
+		try {
+			for (const e of events) pm.removeListener(e, onLock);
+		} catch {
+			/* window gone */
+		}
+	};
 }

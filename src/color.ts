@@ -35,6 +35,29 @@ export function themeAccent(doc: Document): RGB {
 	return (raw && resolveColor(doc, raw)) || resolveColor(doc, DEFAULT_ACCENT) || [124, 92, 214];
 }
 
+const linear = (v: number): number => {
+	const c = v / 255;
+	return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+};
+
+/** WCAG contrast ratio of two colours, 1 to 21. */
+export function contrastRatio(a: RGB, b: RGB): number {
+	const lum = ([r, g, bl]: RGB) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(bl);
+	const x = lum(a);
+	const y = lum(b);
+	return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/**
+ * Text colour for a button painted `bg`: white if that reads (4.5:1), else near-black if that reads, else white.
+ * The last case is a narrow purple-magenta band where neither reaches 4.5:1 (the best there is about 4.2:1); white is
+ * what people expect on those colours, and the default purple is in it.
+ */
+export function inkFor(bg: RGB): "#ffffff" | "#111111" {
+	if (contrastRatio([255, 255, 255], bg) >= 4.5) return "#ffffff";
+	return contrastRatio([17, 17, 17], bg) >= 4.5 ? "#111111" : "#ffffff";
+}
+
 function rgbToHsl([r, g, b]: RGB): [number, number, number] {
 	r /= 255;
 	g /= 255;

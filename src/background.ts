@@ -123,8 +123,13 @@ export async function chooseVideo(app: App, pluginDir: string, doc: Document): P
 	const ext = extOf(file);
 	if (!ext || file.size > MAX_VIDEO_BYTES) throw new Error("unsupported video");
 	await verifyPlayable(file, doc);
-	await removeVideo(app, pluginDir); // only one clip is kept
+	// Write the new clip before touching the old one: if the write fails, the previous video is still there.
 	await app.vault.adapter.writeBinary(videoPath(pluginDir, ext), await file.arrayBuffer());
+	for (const other of VIDEO_EXTS) {
+		if (other === ext) continue; // only one clip is kept
+		const path = videoPath(pluginDir, other);
+		if (await app.vault.adapter.exists(path)) await app.vault.adapter.remove(path);
+	}
 	return ext;
 }
 

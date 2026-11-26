@@ -73,3 +73,54 @@ export async function verifyPassword(password: string, cred: Credential): Promis
 	const hash = await derive(password, fromB64(cred.salt), cred.iter);
 	return equalConstantTime(hash, fromB64(cred.hash));
 }
+
+// ---- recovery key ---------------------------------------------------------------------------------------
+// A random key the owner writes down when setting the password. Only its PBKDF2 hash is stored (same scheme as the
+// password). It is 120 random bits, so unlike a PIN it cannot be guessed offline from a copy of data.json.
+
+// Crockford base32: no I, L, O, U, so a hand-written key is hard to misread. 32 symbols = 5 bits each.
+const RK_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const RECOVERY_KEY_LENGTH = 24; // symbols, 120 bits
+
+/** A new key, shown as six groups of four: `ABCD-EFGH-...`. */
+export function generateRecoveryKey(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array((RECOVERY_KEY_LENGTH * 5) / 8));
+	let bits = 0;
+	let acc = 0;
+	let out = "";
+	for (const b of bytes) {
+		acc = (acc << 8) | b;
+		bits += 8;
+		while (bits >= 5) {
+			out += RK_ALPHABET[(acc >> (bits - 5)) & 31];
+			bits -= 5;
+		}
+		acc &= (1 << bits) - 1;
+	}
+	return out.match(/.{4}/g)!.join("-");
+}
+
+/** What the user typed, reduced to the key's own symbols: any case, spaces and dashes ignored, O→0 and I/L→1 as Crockford says. */
+export function normalizeRecoveryKey(input: string): string {
+	return input
+		.normalize("NFKC")
+		.toUpperCase()
+		.replace(/[^0-9A-Z]/g, "")
+		.replace(/O/g, "0")
+		.replace(/[IL]/g, "1");
+}
+
+/** True when the text has the right number of key symbols (cheap check before hashing). */
+export function looksLikeRecoveryKey(input: string): boolean {
+	const n = normalizeRecoveryKey(input);
+	return n.length === RECOVERY_KEY_LENGTH && [...n].every((c) => RK_ALPHABET.includes(c));
+}
+
+export async function createRecoveryCredential(key: string): Promise<Credential> {
+	return createCredential(normalizeRecoveryKey(key));
+}
+
+export async function verifyRecoveryKey(input: string, cred: Credential): Promise<boolean> {
+	if (!looksLikeRecoveryKey(input)) return false;
+	return verifyPassword(normalizeRecoveryKey(input), cred);
+}

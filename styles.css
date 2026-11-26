@@ -1,4 +1,4 @@
-/* Vault Lock — layout notes
+/* Lockscape — layout notes
  * - Uses Obsidian theme variables (with fallbacks), so light/dark/custom themes just work.
  * - Fixed overlay containing one flex "stage"; the stage uses `margin: auto`, which centers it when it
  *   fits and lets the overlay scroll (instead of clipping) when the viewport is short, e.g. phone
@@ -116,7 +116,8 @@
 
 /* snow: soft flakes falling with a gentle sway; tinted with the accent on a plain light screen */
 .vault-lock-anim.is-snow { --flake: #fff; }
-.theme-light .vault-lock-overlay:not(.has-image) .vault-lock-anim.is-snow { --flake: var(--vl-c1, #7c5cd6); }
+/* white flakes vanish on a light screen, so the default theme tints them; the other themes are dark or saturated: white */
+.theme-light .vault-lock-overlay[data-theme="default"]:not(.has-image) .vault-lock-anim.is-snow { --flake: var(--vl-c1, #7c5cd6); }
 .vault-lock-anim.is-snow i {
 	position: absolute;
 	left: var(--x, 50%);
@@ -161,6 +162,22 @@
 }
 
 /* ---- stage: clock, lock card, to-do panel ---------------------------------------------- */
+
+/* Window grip: the overlay hides Obsidian's title bar, so a frameless window could not be moved while locked. */
+.vault-lock-drag { display: none; }
+body.is-frameless .vault-lock-drag {
+	display: block;
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: var(--titlebar-height, 30px);
+	z-index: 3;
+	-webkit-app-region: drag;
+}
+
+/* Keep the first row of content clear of the grip. */
+body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 30px), env(safe-area-inset-top, 0px)); }
 
 .vault-lock-stage {
 	position: relative;
@@ -241,6 +258,13 @@
 	height: 44px;
 	font-size: 16px;
 	text-align: center;
+}
+
+/* Obsidian's own input[type="password"] rule is more specific than a bare class, so the field was 30px high with 13px
+ * text in the real app. 44px is the touch-target size and 16px is the size under which iOS zooms into a focused field. */
+.vault-lock-overlay .vault-lock-input {
+	height: 44px;
+	font-size: 16px;
 }
 
 .vault-lock-button {
@@ -358,6 +382,20 @@
 	font-size: 16px;
 }
 
+ /* "Hide screen" cover: a quiet hint that a click brings the screen back (no password). */
+.vault-lock-cover-hint { display: none; text-align: center; font-size: 13px; opacity: 0.7; color: var(--vl-text, var(--text-muted, #666)); margin-top: 8px; }
+.vault-lock-overlay.is-manual .vault-lock-cover-hint { display: block; }
+.vault-lock-overlay.is-manual { cursor: pointer; }
+
+/* Touch screens: every to-do control is at least 44px, the size the password field and unlock button already keep. */
+@media (pointer: coarse) {
+	.vault-lock-todo { min-height: 44px; }
+	.vault-lock-todo-label { min-height: 44px; }
+	.vault-lock-todo-label input[type="checkbox"] { width: 24px; height: 24px; }
+	.vault-lock-overlay .vault-lock-todo-btn { width: 44px; height: 44px; }
+	.vault-lock-todo-input { height: 44px; }
+}
+
 /* ---- "Locked" text: hidden visually (not from screen readers) when asked, or in auto mode over a photo ---- */
 .vault-lock-overlay.title-hide .vault-lock-title,
 .vault-lock-overlay.title-auto.has-image:not(.custom-title) .vault-lock-title {
@@ -375,23 +413,9 @@
 /* ---- hidden password field ("hover reveal") ---------------------------------------------
  * Only the opacity of the field and button changes: they stay in the layout, in the tab order and in the
  * accessibility tree, so keyboard and screen-reader users are not locked out, and the hover target keeps its
- * size. The retro and cartoon themes show a "press any key" prompt in that space while the field is hidden.
+ * size.
  */
 .vault-lock-form { position: relative; }
-
-.vault-lock-reveal-hint {
-	display: none;
-	position: absolute;
-	inset: 0;
-	align-items: center;
-	justify-content: center;
-	text-align: center;
-	pointer-events: none;
-	transition: opacity 0.25s ease;
-}
-
-.vault-lock-overlay.vl-theme-retro.hover-reveal .vault-lock-reveal-hint,
-.vault-lock-overlay.vl-theme-cartoon.hover-reveal .vault-lock-reveal-hint { display: flex; }
 
 .vault-lock-overlay.hover-reveal .vault-lock-form > :is(.vault-lock-input, .vault-lock-button) {
 	opacity: 0;
@@ -406,18 +430,35 @@
 	opacity: 1;
 }
 
-.vault-lock-overlay.hover-reveal .vault-lock-card:hover .vault-lock-reveal-hint,
-.vault-lock-overlay.hover-reveal .vault-lock-form:focus-within .vault-lock-reveal-hint,
-.vault-lock-overlay.hover-reveal .vault-lock-form:has(.vault-lock-input:not(:placeholder-shown)) .vault-lock-reveal-hint,
-.vault-lock-overlay.hover-reveal.has-message .vault-lock-reveal-hint,
-.vault-lock-overlay.hover-reveal.is-busy .vault-lock-reveal-hint {
-	opacity: 0;
-}
+/* Entering a recovery key: the field is always shown, even when it is otherwise hidden until hover. */
+.vault-lock-overlay.hover-reveal.is-recovery .vault-lock-form > :is(.vault-lock-input, .vault-lock-button) { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
-	.vault-lock-overlay.hover-reveal .vault-lock-form > :is(.vault-lock-input, .vault-lock-button),
-	.vault-lock-reveal-hint { transition: none; }
+	.vault-lock-overlay.hover-reveal .vault-lock-form > :is(.vault-lock-input, .vault-lock-button) { transition: none; }
 }
+
+/* "Forgot your password?": a quiet text link under the form, only when a recovery key exists. */
+.vault-lock-overlay .vault-lock-forgot {
+	display: none;
+	margin: 6px auto 0;
+	padding: 4px 8px;
+	height: auto;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	color: inherit;
+	font-size: 13px;
+	text-decoration: underline;
+	opacity: 0.75;
+	cursor: pointer;
+}
+.vault-lock-overlay .vault-lock-forgot:hover { background: transparent; opacity: 1; box-shadow: none; }
+.vault-lock-overlay.has-recovery:not(.is-cover):not(.is-preview) .vault-lock-forgot { display: block; }
+/* hidden-until-hover screens keep the link hidden too, until the field is revealed */
+.vault-lock-overlay.hover-reveal:not(.is-recovery) .vault-lock-forgot { opacity: 0; }
+.vault-lock-overlay.hover-reveal .vault-lock-card:hover .vault-lock-forgot,
+.vault-lock-overlay.hover-reveal .vault-lock-forgot:focus-visible { opacity: 0.75; }
+@media (pointer: coarse) { .vault-lock-overlay .vault-lock-forgot { min-height: 44px; } }
 
 /* ---- preview mode: lock screen without locking ------------------------------------------ */
 
@@ -543,7 +584,7 @@
 
 .vault-lock-overlay .vault-lock-button {
 	background: var(--vl-accent, var(--interactive-accent, #7c5cd6));
-	color: var(--text-on-accent, #fff);
+	color: var(--vl-on-accent, var(--text-on-accent, #fff));
 	border-radius: var(--vl-radius, 6px);
 }
 
@@ -564,528 +605,462 @@
 .vault-lock-overlay.no-icon .vault-lock-icon { display: none; }
 
 /* =========================================================================================
- * THEMES. Each theme restyles every part (clock, lock card, field, button, to-dos, icon, backdrop,
- * animations) as a set. Explicit user options (text colour, accent, clock font, field shape) still win.
+ * THEMES. A theme restyles every part (window frame, clock, lock card, field, button, to-dos, icon) as a set.
+ * Each one draws the lock screen as a "window" (.vault-lock-stage): a centred card inside a big Obsidian window,
+ * the whole window once it is small (the shrunk lock window). Flat, matte colours and 1px lines; no glow.
+ * Colours the user picked (--vl-text, --vl-accent) still win over the theme's own.
  * ========================================================================================= */
 
-/* ---------- Retro game (arcade) ---------- */
-.vault-lock-overlay.vl-theme-retro {
-	--vl-r-panel: #0d0b1e;
-	--vl-r-cyan: #20e6ff;
-	--vl-r-mag: #ff3df2;
-	--vl-r-yel: #ffe94a;
-	--vl-r-grn: #7cff4f;
-	--vl-r-red: #ff4d6d;
-	--vl-radius: 0px;
-	--vl-retro-accent: var(--vl-accent, var(--vl-r-cyan));
-	color: var(--vl-text, #e8f7ff);
-	font-family: "Press Start 2P", "Silkscreen", ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
+.vault-lock-chrome,
+.vault-lock-log,
+.vault-lock-game,
+.vault-lock-prompt { display: none; }
+
+.vault-lock-overlay[data-theme] .vault-lock-stage {
+	width: min(100%, 380px);
+	padding: calc(var(--titlebar-height, 30px) + 14px) 28px 28px;
+	gap: 18px;
+	border-radius: 14px;
+	background: var(--vl-win-bg, transparent);
+	color: var(--vl-win-fg, inherit);
+	overflow: hidden;
+}
+
+.vault-lock-overlay[data-theme] :is(.vault-lock-time, .vault-lock-date, .vault-lock-title) { text-shadow: none; }
+
+/* a photo behind the window never changes the window's own text colours; the "Locked" text stays unless hidden on purpose */
+.vault-lock-overlay[data-theme].title-auto.has-image:not(.custom-title) .vault-lock-title { display: block; }
+
+/* the title bar: three dots (default, terminal) or title + window buttons (Windows 95) */
+.vault-lock-overlay:is([data-theme="default"], [data-theme="win95"], [data-theme="terminal"]) .vault-lock-chrome {
+	display: flex;
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: var(--titlebar-height, 30px);
+	box-sizing: border-box;
+	align-items: center;
+}
+.vl-dots { display: none; gap: 8px; padding-left: 14px; }
+.vl-dot { width: 12px; height: 12px; border-radius: 50%; }
+.vl-chrome-title,
+.vl-winbtns { display: none; }
+
+.vault-lock-overlay:is([data-theme="default"], [data-theme="terminal"]) .vl-dots { display: flex; }
+
+/* small window (the shrunk lock window): the window is the card */
+@media (max-width: 480px) {
+	body .vault-lock-overlay[data-theme] { padding: 0; }
+	body .vault-lock-overlay[data-theme] .vault-lock-stage {
+		width: 100%;
+		min-height: 100%;
+		/* margin 0 made the stage stretch to exactly the window height: taller content was clipped by overflow:hidden and
+		 * squeezed the game canvas. It starts at the top, is at least window high, and grows; the overlay scrolls. */
+		height: auto;
+		align-self: flex-start;
+		margin: 0;
+		border-radius: 0;
+		border: 0;
+		box-shadow: none;
+		justify-content: center;
+	}
+	/* macOS draws its own traffic lights over the window's top-left corner: no copies underneath */
+	body.mod-macos.is-frameless .vl-dots { visibility: hidden; }
+	/* the Windows 95 title bar starts at the window's top edge here, under the three traffic lights (Obsidian reserves 80px for them: --frame-left-space):
+	 * the icon and the title move together to their right; the icon is the title's ::before, so it needs its own offset */
+	body.mod-macos.is-frameless .vault-lock-overlay[data-theme="win95"] .vl-chrome-title { padding-left: 98px; }
+	body.mod-macos.is-frameless .vault-lock-overlay[data-theme="win95"] .vl-chrome-title::before { left: 77px; }
+}
+
+/* ---------- Default (simple, white window) ---------- */
+.vault-lock-overlay[data-theme="default"] { background: var(--background-secondary, #f3f3f5); }
+.vault-lock-overlay[data-theme="default"] .vault-lock-stage {
+	--vl-win-bg: var(--background-primary, #fff);
+	--vl-win-fg: var(--vl-text, var(--text-normal, #2b2b2e));
+	border: 1px solid var(--background-modifier-border, #e4e4e7);
+	box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+}
+.vault-lock-overlay[data-theme="default"] .vl-dot:nth-child(1) { background: #ff5f57; }
+.vault-lock-overlay[data-theme="default"] .vl-dot:nth-child(2) { background: #febc2e; }
+.vault-lock-overlay[data-theme="default"] .vl-dot:nth-child(3) { background: #28c840; }
+.vault-lock-overlay[data-theme="default"] .vault-lock-icon svg { stroke-width: 1.5; opacity: 0.55; }
+.vault-lock-overlay[data-theme="default"] .vault-lock-input {
+	border: 1.5px solid var(--background-modifier-border, #d4d4d8);
+	border-radius: 12px;
+	background: var(--background-secondary, #fafafa);
+	box-shadow: none;
+	color: inherit;
+}
+.vault-lock-overlay[data-theme="default"] .vault-lock-input::placeholder { color: var(--text-muted, #6b6b75); } /* faint grey was 2.1:1 */
+.vault-lock-overlay[data-theme="default"] .vault-lock-button {
+	border: 0;
+	border-radius: 12px;
+	background: var(--vl-accent, #8456f4); /* #8b5cf6 with white text is 4.2:1; this is the nearest purple that reaches 4.5:1 */
+	color: var(--vl-on-accent, #fff); /* set when the user picked an accent: white or near-black, whichever reads */
+	font-weight: 600;
+	box-shadow: none;
+}
+.vault-lock-overlay[data-theme="default"] .vault-lock-button:hover { background: var(--vl-accent, #7c3aed); filter: brightness(0.94); }
+/* Obsidian's light error red (#e93147) is 4.2:1 on the white card; this one is 5.1:1. The dark mode keeps Obsidian's own. */
+.theme-light .vault-lock-overlay[data-theme="default"] .vault-lock-message { color: #d12a3f; }
+
+/* the Windows 95 wallpaper icons: only in a window wide enough to leave the login window clear of them */
+.vault-lock-desktop { display: none; }
+@media (min-width: 700px) and (min-height: 480px) {
+	.vault-lock-overlay[data-theme="win95"] .vault-lock-desktop {
+		display: flex;
+		flex-direction: column;
+		gap: 18px;
+		position: absolute;
+		top: calc(var(--titlebar-height, 30px) + 14px);
+		left: 18px;
+		z-index: 1;
+		pointer-events: none; /* decoration: nothing to click */
+		user-select: none;
+		font-family: Tahoma, "MS Sans Serif", "Malgun Gothic", var(--font-interface, system-ui), sans-serif;
+	}
+	.vault-lock-overlay[data-theme="win95"] .vl-icon { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 84px; }
+	.vault-lock-overlay[data-theme="win95"] .vl-icon svg { width: 48px; height: 48px; }
+	.vault-lock-overlay[data-theme="win95"] .vl-icon-label { color: #fff; font-size: 12px; line-height: 1.25; text-align: center; overflow-wrap: anywhere; }
+}
+
+/* ---------- Windows 95 ---------- */
+.vault-lock-overlay[data-theme="win95"] { background: #008080; }
+.vault-lock-overlay[data-theme="win95"] .vault-lock-stage {
+	--vl-win-bg: #c0c0c0;
+	--vl-win-fg: var(--vl-text, #000);
+	border-radius: 0;
+	border: 2px solid;
+	border-color: #dfdfdf #404040 #404040 #dfdfdf;
+	box-shadow: inset 1px 1px #fff, inset -1px -1px #808080;
+	font-family: Tahoma, "MS Sans Serif", "Malgun Gothic", var(--font-interface, system-ui), sans-serif;
 	-webkit-font-smoothing: none;
 }
-
-.vault-lock-overlay.vl-theme-retro:not(.has-image) {
-	background:
-		radial-gradient(ellipse at 50% 115%, rgba(255, 61, 242, 0.35), transparent 62%),
-		linear-gradient(#1b0f3d, #0c0720 70%);
-}
-
-/* synthwave floor: a perspective grid scrolling toward the viewer (hidden over a photo/video) */
-.vault-lock-overlay.vl-theme-retro::before {
-	content: "";
-	position: fixed;
-	left: -50%;
-	right: -50%;
-	bottom: 0;
-	height: 52%;
-	z-index: 1;
-	pointer-events: none;
-	background:
-		linear-gradient(rgba(255, 61, 242, 0.7) 2px, transparent 2px) 0 0 / 100% 46px,
-		linear-gradient(90deg, rgba(255, 61, 242, 0.7) 2px, transparent 2px) 0 0 / 62px 100%;
-	transform: perspective(360px) rotateX(62deg);
-	transform-origin: 50% 100%;
-	-webkit-mask-image: linear-gradient(to top, #000 25%, transparent);
-	mask-image: linear-gradient(to top, #000 25%, transparent);
-	animation: vault-lock-grid 2.6s linear infinite;
-}
-
-.vault-lock-overlay.vl-theme-retro.has-image::before {
-	display: none;
-}
-
-/* CRT scanlines over everything (very light, so text stays crisp) */
-.vault-lock-overlay.vl-theme-retro::after {
-	content: "";
-	position: fixed;
-	inset: 0;
-	z-index: 3;
-	pointer-events: none;
-	background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
-}
-
-@keyframes vault-lock-grid {
-	to { background-position: 0 46px, 0 0; }
-}
-
-@keyframes vault-lock-blink {
-	0%, 49% { opacity: 1; }
-	50%, 100% { opacity: 0; }
-}
-
-@keyframes vault-lock-blink-soft {
-	0%, 49% { opacity: 1; }
-	50%, 100% { opacity: 0.18; }
-}
-
-/* pixel panels: a notched border drawn with hard box-shadows, plus a chunky drop shadow */
-.vault-lock-overlay.vl-theme-retro .vault-lock-clock,
-.vault-lock-overlay.vl-theme-retro .vault-lock-card,
-.vault-lock-overlay.vl-theme-retro .vault-lock-todos {
-	--edge: var(--vl-r-cyan);
-	background: var(--vl-r-panel);
-	border: 0;
-	border-radius: 0;
-	margin: 4px;
-	box-shadow:
-		0 -4px 0 0 var(--edge), 0 4px 0 0 var(--edge), -4px 0 0 0 var(--edge), 4px 0 0 0 var(--edge),
-		10px 10px 0 4px rgba(0, 0, 0, 0.55);
-	-webkit-backdrop-filter: none;
-	backdrop-filter: none;
-	box-sizing: border-box;
-	width: calc(100% - 8px);
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-clock { --edge: var(--vl-retro-accent); position: relative; padding: 26px 14px 12px; }
-.vault-lock-overlay.vl-theme-retro .vault-lock-card { --edge: var(--vl-r-mag); padding: 18px 16px; }
-.vault-lock-overlay.vl-theme-retro .vault-lock-todos { --edge: var(--vl-r-grn); }
-
-/* seven-segment clock */
-.vault-lock-overlay.vl-theme-retro .vault-lock-time {
-	display: flex;
-	flex-wrap: nowrap;
-	align-items: center;
-	justify-content: center;
-	width: 100%;
-	gap: calc(6px * var(--vl-clock-scale, 1));
-	color: var(--vl-retro-accent);
-	font-family: inherit;
-	font-weight: var(--vl-clock-weight, 400);
-	line-height: 1;
-	text-shadow: none;
-}
-
-.vault-lock-seg {
-	/* digits take what is left of the panel (up to a maximum size), so seconds or a big scale never overflow */
-	flex: 1 1 0;
-	min-width: 0;
-	max-width: calc(34px * var(--vl-clock-scale, 1));
-	width: auto;
-	height: auto;
-	overflow: visible;
-	transform: skewX(-6deg);
-}
-
-.vault-lock-seg polygon {
-	fill: currentColor;
-	opacity: 0.1;
-}
-
-.vault-lock-seg polygon.on {
-	opacity: 1;
-	filter: drop-shadow(0 0 4px currentColor);
-}
-
-.vault-lock-colon {
+.vault-lock-overlay[data-theme="win95"] .vault-lock-chrome { background: #808080; padding: 0 3px; }
+.vault-lock-overlay[data-theme="win95"] .vl-chrome-title {
+	display: block;
 	position: relative;
-	flex: 0 0 calc(8px * var(--vl-clock-scale, 1));
-	width: calc(8px * var(--vl-clock-scale, 1));
-	height: calc(34px * var(--vl-clock-scale, 1));
-	animation: vault-lock-blink-soft 1s steps(1) infinite; /* dims instead of vanishing: hh:mm:ss stays readable */
-}
-
-.vault-lock-colon::before,
-.vault-lock-colon::after {
-	content: "";
-	position: absolute;
-	left: 0;
-	width: 100%;
-	aspect-ratio: 1;
-	background: currentColor;
-	box-shadow: 0 0 6px currentColor;
-}
-
-.vault-lock-colon::before { top: 22%; }
-.vault-lock-colon::after { bottom: 22%; }
-
-.vault-lock-period {
-	position: absolute;
-	top: 9px;
-	left: 14px;
-	font-size: 11px;
-	color: var(--vl-r-yel);
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-date {
-	font-size: 11px;
-	color: var(--vl-r-mag);
-	opacity: 1;
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-title {
-	color: var(--vl-r-yel);
-	font-size: 12px;
-	animation: vault-lock-rise 0.32s steps(5) 0.24s backwards, vault-lock-blink-soft 1.1s steps(1) 0.7s infinite;
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-message { color: var(--vl-r-red); font-size: 11px; }
-.vault-lock-overlay.vl-theme-retro .vault-lock-hint { color: var(--vl-r-grn); font-size: 10px; opacity: 1; }
-
-/* pixel padlock instead of the smooth icon */
-.vault-lock-overlay.vl-theme-retro .vault-lock-icon {
-	width: 40px;
-	height: 43px;
-	color: var(--vl-r-yel);
-	background: currentColor;
-	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 13' shape-rendering='crispEdges'%3E%3Crect x='4' y='0' width='1' height='1'/%3E%3Crect x='5' y='0' width='1' height='1'/%3E%3Crect x='6' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='4' y='1' width='1' height='1'/%3E%3Crect x='5' y='1' width='1' height='1'/%3E%3Crect x='6' y='1' width='1' height='1'/%3E%3Crect x='7' y='1' width='1' height='1'/%3E%3Crect x='8' y='1' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3Crect x='3' y='2' width='1' height='1'/%3E%3Crect x='8' y='2' width='1' height='1'/%3E%3Crect x='9' y='2' width='1' height='1'/%3E%3Crect x='2' y='3' width='1' height='1'/%3E%3Crect x='3' y='3' width='1' height='1'/%3E%3Crect x='8' y='3' width='1' height='1'/%3E%3Crect x='9' y='3' width='1' height='1'/%3E%3Crect x='2' y='4' width='1' height='1'/%3E%3Crect x='3' y='4' width='1' height='1'/%3E%3Crect x='8' y='4' width='1' height='1'/%3E%3Crect x='9' y='4' width='1' height='1'/%3E%3Crect x='0' y='5' width='1' height='1'/%3E%3Crect x='1' y='5' width='1' height='1'/%3E%3Crect x='2' y='5' width='1' height='1'/%3E%3Crect x='3' y='5' width='1' height='1'/%3E%3Crect x='4' y='5' width='1' height='1'/%3E%3Crect x='5' y='5' width='1' height='1'/%3E%3Crect x='6' y='5' width='1' height='1'/%3E%3Crect x='7' y='5' width='1' height='1'/%3E%3Crect x='8' y='5' width='1' height='1'/%3E%3Crect x='9' y='5' width='1' height='1'/%3E%3Crect x='10' y='5' width='1' height='1'/%3E%3Crect x='11' y='5' width='1' height='1'/%3E%3Crect x='0' y='6' width='1' height='1'/%3E%3Crect x='1' y='6' width='1' height='1'/%3E%3Crect x='2' y='6' width='1' height='1'/%3E%3Crect x='3' y='6' width='1' height='1'/%3E%3Crect x='4' y='6' width='1' height='1'/%3E%3Crect x='5' y='6' width='1' height='1'/%3E%3Crect x='6' y='6' width='1' height='1'/%3E%3Crect x='7' y='6' width='1' height='1'/%3E%3Crect x='8' y='6' width='1' height='1'/%3E%3Crect x='9' y='6' width='1' height='1'/%3E%3Crect x='10' y='6' width='1' height='1'/%3E%3Crect x='11' y='6' width='1' height='1'/%3E%3Crect x='0' y='7' width='1' height='1'/%3E%3Crect x='1' y='7' width='1' height='1'/%3E%3Crect x='2' y='7' width='1' height='1'/%3E%3Crect x='3' y='7' width='1' height='1'/%3E%3Crect x='4' y='7' width='1' height='1'/%3E%3Crect x='7' y='7' width='1' height='1'/%3E%3Crect x='8' y='7' width='1' height='1'/%3E%3Crect x='9' y='7' width='1' height='1'/%3E%3Crect x='10' y='7' width='1' height='1'/%3E%3Crect x='11' y='7' width='1' height='1'/%3E%3Crect x='0' y='8' width='1' height='1'/%3E%3Crect x='1' y='8' width='1' height='1'/%3E%3Crect x='2' y='8' width='1' height='1'/%3E%3Crect x='3' y='8' width='1' height='1'/%3E%3Crect x='8' y='8' width='1' height='1'/%3E%3Crect x='9' y='8' width='1' height='1'/%3E%3Crect x='10' y='8' width='1' height='1'/%3E%3Crect x='11' y='8' width='1' height='1'/%3E%3Crect x='0' y='9' width='1' height='1'/%3E%3Crect x='1' y='9' width='1' height='1'/%3E%3Crect x='2' y='9' width='1' height='1'/%3E%3Crect x='3' y='9' width='1' height='1'/%3E%3Crect x='4' y='9' width='1' height='1'/%3E%3Crect x='7' y='9' width='1' height='1'/%3E%3Crect x='8' y='9' width='1' height='1'/%3E%3Crect x='9' y='9' width='1' height='1'/%3E%3Crect x='10' y='9' width='1' height='1'/%3E%3Crect x='11' y='9' width='1' height='1'/%3E%3Crect x='0' y='10' width='1' height='1'/%3E%3Crect x='1' y='10' width='1' height='1'/%3E%3Crect x='2' y='10' width='1' height='1'/%3E%3Crect x='3' y='10' width='1' height='1'/%3E%3Crect x='4' y='10' width='1' height='1'/%3E%3Crect x='7' y='10' width='1' height='1'/%3E%3Crect x='8' y='10' width='1' height='1'/%3E%3Crect x='9' y='10' width='1' height='1'/%3E%3Crect x='10' y='10' width='1' height='1'/%3E%3Crect x='11' y='10' width='1' height='1'/%3E%3Crect x='0' y='11' width='1' height='1'/%3E%3Crect x='1' y='11' width='1' height='1'/%3E%3Crect x='2' y='11' width='1' height='1'/%3E%3Crect x='3' y='11' width='1' height='1'/%3E%3Crect x='4' y='11' width='1' height='1'/%3E%3Crect x='5' y='11' width='1' height='1'/%3E%3Crect x='6' y='11' width='1' height='1'/%3E%3Crect x='7' y='11' width='1' height='1'/%3E%3Crect x='8' y='11' width='1' height='1'/%3E%3Crect x='9' y='11' width='1' height='1'/%3E%3Crect x='10' y='11' width='1' height='1'/%3E%3Crect x='11' y='11' width='1' height='1'/%3E%3Crect x='0' y='12' width='1' height='1'/%3E%3Crect x='1' y='12' width='1' height='1'/%3E%3Crect x='2' y='12' width='1' height='1'/%3E%3Crect x='3' y='12' width='1' height='1'/%3E%3Crect x='4' y='12' width='1' height='1'/%3E%3Crect x='5' y='12' width='1' height='1'/%3E%3Crect x='6' y='12' width='1' height='1'/%3E%3Crect x='7' y='12' width='1' height='1'/%3E%3Crect x='8' y='12' width='1' height='1'/%3E%3Crect x='9' y='12' width='1' height='1'/%3E%3Crect x='10' y='12' width='1' height='1'/%3E%3Crect x='11' y='12' width='1' height='1'/%3E%3C/svg%3E") center / contain no-repeat;
-	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 13' shape-rendering='crispEdges'%3E%3Crect x='4' y='0' width='1' height='1'/%3E%3Crect x='5' y='0' width='1' height='1'/%3E%3Crect x='6' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='4' y='1' width='1' height='1'/%3E%3Crect x='5' y='1' width='1' height='1'/%3E%3Crect x='6' y='1' width='1' height='1'/%3E%3Crect x='7' y='1' width='1' height='1'/%3E%3Crect x='8' y='1' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3Crect x='3' y='2' width='1' height='1'/%3E%3Crect x='8' y='2' width='1' height='1'/%3E%3Crect x='9' y='2' width='1' height='1'/%3E%3Crect x='2' y='3' width='1' height='1'/%3E%3Crect x='3' y='3' width='1' height='1'/%3E%3Crect x='8' y='3' width='1' height='1'/%3E%3Crect x='9' y='3' width='1' height='1'/%3E%3Crect x='2' y='4' width='1' height='1'/%3E%3Crect x='3' y='4' width='1' height='1'/%3E%3Crect x='8' y='4' width='1' height='1'/%3E%3Crect x='9' y='4' width='1' height='1'/%3E%3Crect x='0' y='5' width='1' height='1'/%3E%3Crect x='1' y='5' width='1' height='1'/%3E%3Crect x='2' y='5' width='1' height='1'/%3E%3Crect x='3' y='5' width='1' height='1'/%3E%3Crect x='4' y='5' width='1' height='1'/%3E%3Crect x='5' y='5' width='1' height='1'/%3E%3Crect x='6' y='5' width='1' height='1'/%3E%3Crect x='7' y='5' width='1' height='1'/%3E%3Crect x='8' y='5' width='1' height='1'/%3E%3Crect x='9' y='5' width='1' height='1'/%3E%3Crect x='10' y='5' width='1' height='1'/%3E%3Crect x='11' y='5' width='1' height='1'/%3E%3Crect x='0' y='6' width='1' height='1'/%3E%3Crect x='1' y='6' width='1' height='1'/%3E%3Crect x='2' y='6' width='1' height='1'/%3E%3Crect x='3' y='6' width='1' height='1'/%3E%3Crect x='4' y='6' width='1' height='1'/%3E%3Crect x='5' y='6' width='1' height='1'/%3E%3Crect x='6' y='6' width='1' height='1'/%3E%3Crect x='7' y='6' width='1' height='1'/%3E%3Crect x='8' y='6' width='1' height='1'/%3E%3Crect x='9' y='6' width='1' height='1'/%3E%3Crect x='10' y='6' width='1' height='1'/%3E%3Crect x='11' y='6' width='1' height='1'/%3E%3Crect x='0' y='7' width='1' height='1'/%3E%3Crect x='1' y='7' width='1' height='1'/%3E%3Crect x='2' y='7' width='1' height='1'/%3E%3Crect x='3' y='7' width='1' height='1'/%3E%3Crect x='4' y='7' width='1' height='1'/%3E%3Crect x='7' y='7' width='1' height='1'/%3E%3Crect x='8' y='7' width='1' height='1'/%3E%3Crect x='9' y='7' width='1' height='1'/%3E%3Crect x='10' y='7' width='1' height='1'/%3E%3Crect x='11' y='7' width='1' height='1'/%3E%3Crect x='0' y='8' width='1' height='1'/%3E%3Crect x='1' y='8' width='1' height='1'/%3E%3Crect x='2' y='8' width='1' height='1'/%3E%3Crect x='3' y='8' width='1' height='1'/%3E%3Crect x='8' y='8' width='1' height='1'/%3E%3Crect x='9' y='8' width='1' height='1'/%3E%3Crect x='10' y='8' width='1' height='1'/%3E%3Crect x='11' y='8' width='1' height='1'/%3E%3Crect x='0' y='9' width='1' height='1'/%3E%3Crect x='1' y='9' width='1' height='1'/%3E%3Crect x='2' y='9' width='1' height='1'/%3E%3Crect x='3' y='9' width='1' height='1'/%3E%3Crect x='4' y='9' width='1' height='1'/%3E%3Crect x='7' y='9' width='1' height='1'/%3E%3Crect x='8' y='9' width='1' height='1'/%3E%3Crect x='9' y='9' width='1' height='1'/%3E%3Crect x='10' y='9' width='1' height='1'/%3E%3Crect x='11' y='9' width='1' height='1'/%3E%3Crect x='0' y='10' width='1' height='1'/%3E%3Crect x='1' y='10' width='1' height='1'/%3E%3Crect x='2' y='10' width='1' height='1'/%3E%3Crect x='3' y='10' width='1' height='1'/%3E%3Crect x='4' y='10' width='1' height='1'/%3E%3Crect x='7' y='10' width='1' height='1'/%3E%3Crect x='8' y='10' width='1' height='1'/%3E%3Crect x='9' y='10' width='1' height='1'/%3E%3Crect x='10' y='10' width='1' height='1'/%3E%3Crect x='11' y='10' width='1' height='1'/%3E%3Crect x='0' y='11' width='1' height='1'/%3E%3Crect x='1' y='11' width='1' height='1'/%3E%3Crect x='2' y='11' width='1' height='1'/%3E%3Crect x='3' y='11' width='1' height='1'/%3E%3Crect x='4' y='11' width='1' height='1'/%3E%3Crect x='5' y='11' width='1' height='1'/%3E%3Crect x='6' y='11' width='1' height='1'/%3E%3Crect x='7' y='11' width='1' height='1'/%3E%3Crect x='8' y='11' width='1' height='1'/%3E%3Crect x='9' y='11' width='1' height='1'/%3E%3Crect x='10' y='11' width='1' height='1'/%3E%3Crect x='11' y='11' width='1' height='1'/%3E%3Crect x='0' y='12' width='1' height='1'/%3E%3Crect x='1' y='12' width='1' height='1'/%3E%3Crect x='2' y='12' width='1' height='1'/%3E%3Crect x='3' y='12' width='1' height='1'/%3E%3Crect x='4' y='12' width='1' height='1'/%3E%3Crect x='5' y='12' width='1' height='1'/%3E%3Crect x='6' y='12' width='1' height='1'/%3E%3Crect x='7' y='12' width='1' height='1'/%3E%3Crect x='8' y='12' width='1' height='1'/%3E%3Crect x='9' y='12' width='1' height='1'/%3E%3Crect x='10' y='12' width='1' height='1'/%3E%3Crect x='11' y='12' width='1' height='1'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-icon svg { display: none; }
-
-/* terminal-style field and an arcade button */
-.vault-lock-overlay.vl-theme-retro .vault-lock-input,
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo-input {
-	background: #000;
-	color: var(--vl-r-grn);
-	caret-color: var(--vl-r-grn);
-	border: 0;
-	font-family: inherit;
-	letter-spacing: 0.06em;
-	text-transform: none;
-	box-shadow: 0 -3px 0 0 var(--vl-r-cyan), 0 3px 0 0 var(--vl-r-cyan), -3px 0 0 0 var(--vl-r-cyan), 3px 0 0 0 var(--vl-r-cyan);
-	-webkit-backdrop-filter: none;
-	backdrop-filter: none;
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-input:focus,
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo-input:focus {
-	box-shadow: 0 -3px 0 0 var(--vl-r-yel), 0 3px 0 0 var(--vl-r-yel), -3px 0 0 0 var(--vl-r-yel), 3px 0 0 0 var(--vl-r-yel);
-	outline: none;
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-input::placeholder,
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo-input::placeholder { color: rgba(124, 255, 79, 0.72); }
-
-/* an empty message row only adds dead space inside the panel; it appears when there is something to say */
-.vault-lock-overlay.vl-theme-retro .vault-lock-message:empty,
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-message:empty { display: none; min-height: 0; }
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-reveal-hint {
-	color: var(--vl-r-yel);
-	font-size: 12px;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
-}
-
-/* soft blink: the prompt dims but never disappears, so the card is never an empty box */
-.vault-lock-overlay.vl-theme-retro .vault-lock-reveal-text { animation: vault-lock-blink-soft 1.1s steps(1) infinite; }
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-button {
-	background: var(--vl-accent, var(--vl-r-yel));
-	color: #111;
-	border: 0;
-	font-family: inherit;
+	padding-left: 22px;
+	color: #fff;
 	font-size: 13px;
 	font-weight: 700;
-	text-transform: uppercase;
-	letter-spacing: 0.1em;
-	box-shadow: 0 -3px 0 0 #111, 0 3px 0 0 #111, -3px 0 0 0 #111, 3px 0 0 0 #111, 6px 6px 0 3px rgba(0, 0, 0, 0.6);
-	transition: none;
 }
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-button:hover { filter: brightness(1.12); }
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-button:active {
-	transform: translate(4px, 4px);
-	box-shadow: 0 -3px 0 0 #111, 0 3px 0 0 #111, -3px 0 0 0 #111, 3px 0 0 0 #111, 2px 2px 0 3px rgba(0, 0, 0, 0.6);
-}
-
-/* to-do list: pixel check boxes */
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo-btn { color: var(--vl-r-cyan); }
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo-label { font-size: 11px; }
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo-label input[type="checkbox"] {
-	-webkit-appearance: none;
-	appearance: none;
-	width: 16px;
-	height: 16px;
-	border: 0;
-	background: #000;
-	box-shadow: 0 0 0 3px var(--vl-r-grn);
-	margin: 3px;
-	cursor: pointer;
-}
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo-label input[type="checkbox"]:checked { background: var(--vl-r-grn); box-shadow: 0 0 0 3px var(--vl-r-grn), inset 0 0 0 3px #000; }
-.vault-lock-overlay.vl-theme-retro .vault-lock-todo.is-done .vault-lock-todo-label span { opacity: 0.5; }
-
-/* the built-in animations in pixel style */
-.vault-lock-overlay.vl-theme-retro .vault-lock-anim.is-fireflies i,
-.vault-lock-overlay.vl-theme-retro .vault-lock-anim.is-snow i {
-	border-radius: 0;
-	box-shadow: none;
-	animation-timing-function: steps(24), steps(3);
-}
-
-.vault-lock-overlay.vl-theme-retro .vault-lock-anim.is-snow i { --flake: var(--vl-r-cyan); }
-.vault-lock-overlay.vl-theme-retro .vault-lock-anim.is-aurora b { opacity: 0.28; }
-.vault-lock-fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-
-/* ---------- Cartoon (classic American comics) ---------- */
-.vault-lock-overlay.vl-theme-cartoon {
-	--ink: #111;
-	--vl-c-yel: #ffd93b;
-	--vl-c-red: #ff4d4d;
-	--vl-c-blue: #2f9bff;
-	--vl-c-cream: #fff6d6;
-	--vl-radius: 14px;
-	color: var(--vl-text, #111);
-	font-family: Bangers, "Luckiest Guy", "Marker Felt", "Chalkboard SE", "Comic Sans MS", "Arial Rounded MT Bold", "Arial Black", Impact, sans-serif;
-	letter-spacing: 0.03em;
-}
-
-/* sunburst + Ben-Day halftone dots, like a vintage comic cover */
-.vault-lock-overlay.vl-theme-cartoon:not(.has-image) { background: var(--vl-c-yel); }
-
-.vault-lock-overlay.vl-theme-cartoon::before {
-	content: "";
-	position: fixed;
-	inset: -70%;
-	z-index: 0;
-	pointer-events: none;
-	background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, 0.55) 0 7.5deg, transparent 7.5deg 15deg);
-	animation: vault-lock-spin-slow 90s linear infinite;
-}
-
-.vault-lock-overlay.vl-theme-cartoon.has-image::before { display: none; }
-
-.vault-lock-overlay.vl-theme-cartoon::after {
-	content: "";
-	position: fixed;
-	inset: 0;
-	z-index: 1;
-	pointer-events: none;
-	background: radial-gradient(circle, rgba(255, 77, 77, 0.55) 22%, transparent 24%) 0 0 / 16px 16px;
-	-webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent 28%, #000 95%);
-	mask-image: radial-gradient(ellipse at 50% 50%, transparent 28%, #000 95%);
-}
-
-@keyframes vault-lock-spin-slow {
-	to { transform: rotate(360deg); }
-}
-
-@keyframes vault-lock-wiggle {
-	0%, 100% { transform: rotate(-1.5deg); }
-	50% { transform: rotate(1.5deg) scale(1.03); }
-}
-
-/* clock as a comic title banner */
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-clock {
-	position: relative;
-	background: var(--vl-c-yel);
-	border: 4px solid var(--ink);
-	border-radius: 6px;
-	padding: 6px 22px 12px;
-	transform: rotate(-2.5deg);
-	box-shadow: 7px 7px 0 var(--ink);
-	gap: 8px;
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-time {
-	color: #fff;
-	font-family: inherit;
-	font-weight: var(--vl-clock-weight, 400);
-	-webkit-text-stroke: 3px var(--ink);
-	paint-order: stroke fill;
-	text-shadow: 4px 4px 0 var(--vl-c-red);
-	letter-spacing: 0.02em;
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-date {
-	background: var(--ink);
-	color: var(--vl-c-yel);
-	opacity: 1;
-	padding: 2px 12px;
-	border-radius: 3px;
-	font-size: 0.95rem;
-	letter-spacing: 0.08em;
-	transform: rotate(1.5deg);
-}
-
-/* the lock card is a speech bubble with a tail */
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-card {
-	position: relative;
-	background: #fff;
-	border: 4px solid var(--ink);
-	border-radius: 24px;
-	padding: 16px 16px 20px;
-	box-shadow: 7px 7px 0 var(--ink);
-	box-sizing: border-box;
-	margin-bottom: 10px;
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-card::after {
-	content: "";
-	position: absolute;
-	left: 44px;
-	bottom: -16px;
-	width: 24px;
-	height: 24px;
-	background: #fff;
-	border-right: 4px solid var(--ink);
-	border-bottom: 4px solid var(--ink);
-	transform: rotate(45deg) skew(8deg, 8deg);
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-icon svg {
-	width: 46px;
-	height: 46px;
-	color: var(--ink);
-	opacity: 1;
-	fill: var(--vl-c-yel);
-	stroke-width: 2.4;
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-title {
-	color: var(--vl-c-red);
-	font-size: 1.5rem;
-	font-weight: 400;
-	-webkit-text-stroke: 1px var(--ink);
-	paint-order: stroke fill;
-	text-shadow: 2px 2px 0 var(--ink);
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-message { color: var(--vl-c-red); font-weight: 700; font-size: 1rem; }
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-reveal-hint {
-	color: var(--vl-c-red);
-	font-size: 1.4rem;
-	-webkit-text-stroke: 1px var(--ink);
-	paint-order: stroke fill;
-	text-shadow: 2px 2px 0 var(--ink);
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-reveal-text { display: inline-block; animation: vault-lock-wiggle 1.4s ease-in-out infinite; }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-hint { color: #444; opacity: 1; }
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-input,
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-input {
-	background: var(--vl-c-cream);
-	color: var(--ink);
-	border: 3px solid var(--ink);
-	box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.14);
-	font-family: inherit;
-	-webkit-backdrop-filter: none;
-	backdrop-filter: none;
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-input:focus,
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-input:focus {
-	outline: none;
-	border-color: var(--vl-c-blue);
-	box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.14), 0 0 0 3px var(--ink);
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-input::placeholder,
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-input::placeholder { color: rgba(17, 17, 17, 0.5); }
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-button {
-	background: var(--vl-accent, var(--vl-c-red));
-	color: #fff;
-	border: 3px solid var(--ink);
-	font-family: inherit;
-	font-size: 1.15rem;
-	font-weight: 400;
-	letter-spacing: 0.08em;
-	text-shadow: 2px 2px 0 var(--ink);
-	box-shadow: 4px 4px 0 var(--ink);
-	transform: rotate(-1deg);
-	transition: transform 0.08s ease;
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-button:hover { animation: vault-lock-wiggle 0.5s ease-in-out infinite; }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-button:active { animation: none; transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
-
-/* to-do list as a caption box */
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todos {
-	background: var(--vl-c-cream);
-	color: var(--ink);
-	border: 4px solid var(--ink);
-	border-radius: 6px;
-	box-shadow: 6px 6px 0 var(--ink);
-	transform: rotate(1deg);
-	-webkit-backdrop-filter: none;
-	backdrop-filter: none;
-}
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-btn { color: var(--ink); }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-label { font-size: 1.05rem; }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-label input[type="checkbox"] {
-	-webkit-appearance: none;
-	appearance: none;
-	width: 20px;
-	height: 20px;
-	border: 3px solid var(--ink);
-	border-radius: 4px;
-	background: #fff;
-	cursor: pointer;
-	position: relative;
-}
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-label input[type="checkbox"]:checked { background: var(--vl-c-yel); }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo-label input[type="checkbox"]:checked::after {
+.vault-lock-overlay[data-theme="win95"] .vl-chrome-title::before {
 	content: "";
 	position: absolute;
 	left: 4px;
 	top: -1px;
-	width: 5px;
-	height: 11px;
-	border: solid var(--ink);
-	border-width: 0 3px 3px 0;
-	transform: rotate(40deg);
+	width: 11px;
+	height: 14px;
+	background: var(--vl-accent, #8b5cf6);
+	clip-path: polygon(50% 0, 100% 32%, 80% 100%, 20% 100%, 0 32%);
 }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-todo.is-done .vault-lock-todo-label span { opacity: 0.55; }
-
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-anim.is-snow i { background: #fff; box-shadow: 0 0 0 2px var(--ink); }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-anim.is-fireflies i { color: var(--vl-c-red); box-shadow: 0 0 0 2px var(--ink); }
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-anim.is-aurora b { opacity: 0.35; }
-
-/* fixed layering for theme overlays that sit above the stage's neighbours */
-.vault-lock-overlay.vl-theme-retro .vault-lock-stage,
-.vault-lock-overlay.vl-theme-cartoon .vault-lock-stage { z-index: 2; }
-
-@media (prefers-reduced-motion: reduce) {
-	.vault-lock-overlay.vl-theme-retro::before,
-	.vault-lock-overlay.vl-theme-cartoon::before,
-	.vault-lock-overlay.vl-theme-retro .vault-lock-title,
-	.vault-lock-overlay.vl-theme-retro .vault-lock-reveal-text,
-	.vault-lock-overlay.vl-theme-cartoon .vault-lock-reveal-text,
-	.vault-lock-colon,
-	.vault-lock-overlay.vl-theme-cartoon .vault-lock-button:hover { animation: none; }
+.vault-lock-overlay[data-theme="win95"] .vl-winbtns { display: flex; gap: 2px; margin-left: auto; }
+.vault-lock-overlay[data-theme="win95"] .vl-winbtn {
+	position: relative;
+	width: 16px;
+	height: 14px;
+	box-sizing: border-box;
+	background: #c0c0c0;
+	border: 2px solid;
+	border-color: #fff #404040 #404040 #fff;
 }
+.vault-lock-overlay[data-theme="win95"] .vl-wb-min::after { content: ""; position: absolute; left: 2px; bottom: 1px; width: 6px; height: 2px; background: #000; }
+.vault-lock-overlay[data-theme="win95"] .vl-wb-max::after { content: ""; position: absolute; inset: 1px 2px; border: 1px solid #000; border-top-width: 2px; }
+.vault-lock-overlay[data-theme="win95"] .vl-wb-close::after { content: "\00d7"; position: absolute; inset: -3px 0 0; font: 700 13px/14px sans-serif; text-align: center; color: #000; }
+.vault-lock-overlay[data-theme="win95"] .vault-lock-time { font-weight: 400; color: inherit; display: flex; align-items: center; justify-content: center; gap: 0.18em; }
+/* the clock's digits are 5x7 pixel art (src/pixeltext.ts); the am/pm marker stays text */
+.vault-lock-overlay[data-theme="win95"] .vl-px-digits { height: 0.72em; width: auto; fill: currentColor; flex: none; }
+.vault-lock-overlay[data-theme="win95"] .vl-px-text { font-size: 0.42em; letter-spacing: 0.04em; }
+.vault-lock-overlay[data-theme="win95"] .vault-lock-date { display: none; }
+.vault-lock-overlay[data-theme="win95"] .vault-lock-title { order: -1; font-size: 1.2em; font-weight: 400; }
+.vault-lock-overlay[data-theme="win95"] .vault-lock-icon svg { width: 44px; height: 50px; opacity: 1; }
+.vault-lock-overlay[data-theme="win95"] .vault-lock-input {
+	border-radius: 0;
+	border: 2px solid;
+	border-color: #808080 #fff #fff #808080;
+	box-shadow: inset 1px 1px #404040;
+	background: #fff;
+	color: #000;
+	text-align: left;
+}
+.vault-lock-overlay[data-theme="win95"] .vault-lock-button {
+	border-radius: 0;
+	border: 2px solid;
+	border-color: #fff #404040 #404040 #fff;
+	box-shadow: inset -1px -1px #808080;
+	background: #c0c0c0;
+	color: #000;
+	font-weight: 400;
+	letter-spacing: 0.04em;
+}
+.vault-lock-overlay[data-theme="win95"] .vault-lock-button:active { border-color: #404040 #fff #fff #404040; box-shadow: inset 1px 1px #808080; }
+.vault-lock-overlay[data-theme="win95"] .vault-lock-message { color: #800000; }
 
+/* ---------- Developer terminal ---------- */
+.vault-lock-overlay[data-theme="terminal"] { background: #010409; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-stage {
+	--vl-win-bg: #0d1117;
+	--vl-win-fg: var(--vl-text, #c9d1d9);
+	border: 1px solid #30363d;
+	border-radius: 10px;
+	font-family: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace;
+	align-items: stretch;
+}
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-chrome { background: #161b22; border-bottom: 1px solid #30363d; }
+.vault-lock-overlay[data-theme="terminal"] .vl-dot { background: #3d444d; }
+.vault-lock-overlay[data-theme="terminal"] .vl-chrome-title {
+	display: block;
+	position: absolute;
+	left: 0;
+	right: 0;
+	text-align: center;
+	color: #8b949e;
+	font-size: 12px;
+	pointer-events: none;
+}
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-clock { align-items: center; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-time { font-family: var(--vl-clock-font, var(--font-interface, system-ui, sans-serif)); font-weight: var(--vl-clock-weight, 300); color: var(--vl-text, #cbd5e1); }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-date { color: var(--vl-text, #94a3b8); opacity: 1; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-log {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	text-align: left;
+	font-size: 13px;
+	line-height: 1.7;
+	color: #c9d1d9;
+}
+.vault-lock-overlay[data-theme="terminal"] .vl-log-line:first-child { color: #8b949e; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-icon { display: none; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-card { display: grid; grid-template-columns: auto 1fr; gap: 14px 6px; align-items: center; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-form { display: contents; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-prompt { display: block; grid-column: 1; grid-row: 1; color: #c9d1d9; font-size: 16px; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-input {
+	grid-column: 2;
+	grid-row: 1;
+	height: 28px;
+	padding: 0 2px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: #c9d1d9;
+	text-align: left;
+	font-size: 16px;
+	line-height: 1;
+	font-family: inherit;
+	caret-color: #c9d1d9;
+	caret-shape: block;
+	outline: none;
+}
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-title { grid-column: 1 / -1; grid-row: 2; margin-top: 18px; font-size: 13px; font-weight: 400; color: var(--vl-text, #8b949e); letter-spacing: 0.06em; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-button {
+	grid-column: 1 / -1;
+	grid-row: 3;
+	border: 1px solid #30363d;
+	border-radius: 6px;
+	background: #0d1117;
+	color: #c9d1d9;
+	font-family: inherit;
+	font-size: 14px;
+	font-weight: 400;
+	box-shadow: none;
+}
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-button:hover { background: #161b22; border-color: #8b949e; }
+.vault-lock-overlay[data-theme="terminal"] .vault-lock-message { grid-column: 1 / -1; grid-row: 4; color: #f85149; }
+
+/* =========================================================================================
+ * OFFLINE GAME THEMES (gameboy-snake, neon-breakout, obsidian-runner)
+ * A small canvas game sits above the lock card. The plugin draws the game; these rules frame it and restyle the
+ * clock, card, field and button to match. No glow, no shadows: 1px lines and matte colours.
+ * ========================================================================================= */
+
+.vault-lock-overlay.is-game .vault-lock-game { display: flex; flex: none; align-items: flex-start; justify-content: center; width: 100%; box-sizing: border-box; }
+.vault-lock-overlay.is-game .vault-lock-game-canvas {
+	display: block;
+	/* logical size, shrunk to fit the window's height (--vl-game-reserve = the height everything else needs) */
+	width: min(100%, var(--vl-game-w, 280px), calc((100vh - var(--vl-game-reserve, 300px)) * var(--vl-game-r, 1)));
+	min-width: 120px;
+	max-width: 100%;
+	height: auto;
+	touch-action: none; /* dragging on the game moves the paddle; it must not scroll the screen */
+	cursor: pointer;
+	outline: none;
+}
+.vault-lock-overlay.is-game .vault-lock-stage { padding: 22px 24px 24px; gap: 14px; }
+.vault-lock-overlay.is-game .vault-lock-card { gap: 10px; }
+.vault-lock-overlay.is-game .vault-lock-form { gap: 8px; }
+/* the field keeps the base 44px height and 16px text (iOS zooms into smaller fields); the button keeps 44px too */
+.vault-lock-overlay.is-game .vault-lock-button { font-size: 14px; letter-spacing: 0.08em; box-shadow: none; }
+.vault-lock-overlay.is-game .vault-lock-title { font-weight: 400; font-size: 1em; color: inherit; }
+.vault-lock-overlay.is-game .vault-lock-message { min-height: 1.2em; }
+/* too short to fit a game and a password field: the field wins */
+@media (max-height: 480px) { .vault-lock-overlay.is-game .vault-lock-game { display: none; } }
+
+/* ---------- Game Boy Snake: a handheld in matte green, the LCD in four greens ---------- */
+.vault-lock-overlay[data-theme="gameboy-snake"] { background: #0a170c; }
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-stage {
+	--vl-win-bg: #1b3220;
+	--vl-win-fg: var(--vl-text, #b9ccab);
+	--vl-game-reserve: 300px;
+	border: 1px solid #2f4b34;
+	border-radius: 16px;
+}
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-clock { display: none; }
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-game {
+	padding: 12px;
+	background: #12261a;
+	border: 1px solid #2f4b34;
+	border-radius: 8px 8px 34px 8px; /* the handheld's bezel: one big corner */
+}
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-game-canvas { image-rendering: pixelated; border: 1px solid #0f380f; border-radius: 3px; }
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-icon svg { width: 26px; height: 28px; opacity: 1; }
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-input {
+	border: 1px solid #355a3a;
+	border-radius: 6px;
+	background: #12261a;
+	box-shadow: none;
+	color: #9bbc0f;
+	letter-spacing: 0.12em;
+}
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-input::placeholder { color: #86a06f; letter-spacing: 0.04em; }
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-input:focus { border-color: var(--vl-accent, #8bac0f); box-shadow: none; }
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-button {
+	border: 1px solid #3f6544;
+	border-radius: 6px;
+	background: #25432b;
+	color: #9bbc0f;
+	font-family: ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace;
+	font-weight: 600;
+}
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-button:hover { background: #2d5234; }
+.vault-lock-overlay[data-theme="gameboy-snake"] .vault-lock-message { color: #e0b27a; }
+
+/* ---------- Neon Breakout: wireframes on deep navy, every line 1px ---------- */
+.vault-lock-overlay[data-theme="neon-breakout"] { background: #03040b; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-stage {
+	--vl-win-bg: #070816;
+	--vl-win-fg: var(--vl-text, #b8c4e6);
+	--vl-game-reserve: 330px;
+	border: 1px solid #312e6b;
+	border-radius: 12px;
+}
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-clock {
+	align-self: center;
+	gap: 0;
+	padding: 2px 16px;
+	border: 1px solid #5ad2e6;
+	border-radius: 8px;
+	transform: skewX(-8deg);
+}
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-date { display: none; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-time {
+	font-family: var(--vl-clock-font, ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace);
+	font-size: 15px;
+	font-weight: var(--vl-clock-weight, 400);
+	letter-spacing: 0.06em;
+	line-height: 1.6;
+	color: var(--vl-text, #5ad2e6);
+}
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-time::before { content: "TIME "; opacity: 0.7; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-game-canvas { border: 1px solid #312e6b; border-radius: 6px; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-icon { display: none; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card {
+	position: relative;
+	align-items: stretch;
+	padding: 24px 14px 14px;
+	border: 1px solid #312e6b;
+}
+/* a wireframe window: three tiny squares and a close mark on its title strip */
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card::before,
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card::after {
+	position: absolute;
+	top: 0;
+	height: 17px;
+	line-height: 17px;
+	font-size: 9px;
+	color: #4b4f86;
+	pointer-events: none;
+}
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card::before { content: "\25A1 \25A1 \25A1"; left: 8px; letter-spacing: 0.1em; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card::after { content: "\00d7"; right: 8px; font-size: 13px; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card > .vault-lock-title,
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card > .vault-lock-form { position: relative; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-card { background-image: linear-gradient(#312e6b, #312e6b); background-repeat: no-repeat; background-size: 100% 1px; background-position: 0 17px; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-title { color: var(--vl-text, #8fa0d8); text-align: center; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-input {
+	border: 1px solid #7c5ce0;
+	border-radius: 6px;
+	background: #0b0a22;
+	box-shadow: none;
+	color: #e0e7ff;
+}
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-input::placeholder { color: transparent; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-input:focus { border-color: var(--vl-accent, #5ad2e6); box-shadow: none; }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-button {
+	border: 1px solid #5ad2e6;
+	border-radius: 6px;
+	background: transparent;
+	color: #5ad2e6;
+	font-weight: 400;
+	letter-spacing: 0.14em;
+}
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-button:hover { background: rgba(90, 210, 230, 0.08); }
+.vault-lock-overlay[data-theme="neon-breakout"] .vault-lock-message { color: #e879b9; }
+
+/* ---------- Obsidian Runner: matte dark grey, pixel padlock ---------- */
+.vault-lock-overlay[data-theme="obsidian-runner"] { background: #1c1c1e; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-stage {
+	--vl-win-bg: #313133;
+	--vl-win-fg: var(--vl-text, #e5e7eb);
+	--vl-game-reserve: 290px;
+	border: 1px solid #48484c;
+	border-radius: 14px;
+}
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-clock { display: none; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-game { background: #2a2a2d; border: 1px solid #48484c; border-radius: 8px; overflow: hidden; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-game-canvas { image-rendering: pixelated; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-icon svg { width: 34px; height: 37px; opacity: 1; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-input {
+	border: 1px solid #4c4c51;
+	border-radius: 6px;
+	background: #262628;
+	box-shadow: none;
+	color: #e5e7eb;
+}
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-input::placeholder { color: #9494a0; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-input:focus { border-color: var(--vl-accent, #9ca3af); box-shadow: none; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-button {
+	border: 1px solid #55555a;
+	border-radius: 6px;
+	background: #3d3d41;
+	color: #d4d4d8;
+	font-weight: 500;
+}
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-button:hover { background: #47474c; }
+.vault-lock-overlay[data-theme="obsidian-runner"] .vault-lock-message { color: #f08a8a; }
+
+/* landscape phones and other very low windows: tighter, and the terminal's fake log goes, so the field is on the first screen */
+@media (max-height: 400px) {
+	.vault-lock-overlay[data-theme] .vault-lock-stage { gap: 8px; padding-top: calc(var(--titlebar-height, 30px) + 6px); padding-bottom: 12px; }
+	.vault-lock-overlay[data-theme="terminal"] .vault-lock-log { display: none; }
+}
 
 /* =========================================================================================
  * LOCK / UNLOCK FLOW
  *  - locking: the screen fades in, the padlock snaps shut, then the text rises
- *  - wrong password: the card shakes
+ *  - wrong password: the field shakes
  *  - unlocking: the padlock opens, the text says so, then the screen fades out
- *  - hidden field (retro/cartoon): icon + text + prompt sit together in the middle of the card and glide
- *    up when the field is revealed
  * Individual transform properties (translate/scale/rotate) are used for the one-off animations, so they
  * compose with the `transform` used by the glide instead of fighting it.
  * ========================================================================================= */
 
-.vault-lock-overlay { animation: vault-lock-fade-in 0.22s ease-out backwards; }
+/* The overlay itself is opaque from the first frame (a snapshot taken at that moment, e.g. the mobile app
+ * switcher, must not show the notes); only the content fades in. */
+.vault-lock-overlay .vault-lock-stage { animation: vault-lock-fade-in 0.22s ease-out backwards; }
+.vault-lock-overlay.is-cover .vault-lock-stage { animation: none; }
 .vault-lock-icon { animation: vault-lock-snap 0.42s cubic-bezier(0.2, 1.4, 0.4, 1) 0.08s backwards; }
 .vault-lock-title { animation: vault-lock-rise 0.32s ease-out 0.24s backwards; }
 
@@ -1119,7 +1094,8 @@
 	100% { translate: 0 -4px; rotate: 0deg; }
 }
 
-.vault-lock-overlay.is-denied .vault-lock-card { animation: vault-lock-shake 0.45s ease-in-out; }
+/* wrong password: the field shakes (0.35 s), not the whole card */
+.vault-lock-overlay.is-error .vault-lock-input { animation: vault-lock-shake 0.35s ease-in-out; }
 
 .vault-lock-overlay.is-unlocking {
 	pointer-events: none;
@@ -1129,50 +1105,27 @@
 .vault-lock-overlay.is-unlocking .vault-lock-title { animation: none; opacity: 1; }
 .vault-lock-overlay.is-unlocking .vault-lock-form > :is(.vault-lock-input, .vault-lock-button) { opacity: 0.45; }
 
-/* retro: the pixel padlock swaps to its open version; steps() keeps the motion chunky */
-.vault-lock-overlay.vl-theme-retro .vault-lock-icon { animation-timing-function: steps(6); }
-.vault-lock-overlay.vl-theme-retro.is-unlocking .vault-lock-icon {
-	animation-timing-function: steps(5);
-	color: var(--vl-r-grn);
-	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 13' shape-rendering='crispEdges'%3E%3Crect x='6' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='8' y='0' width='1' height='1'/%3E%3Crect x='9' y='0' width='1' height='1'/%3E%3Crect x='5' y='1' width='1' height='1'/%3E%3Crect x='6' y='1' width='1' height='1'/%3E%3Crect x='9' y='1' width='1' height='1'/%3E%3Crect x='10' y='1' width='1' height='1'/%3E%3Crect x='5' y='2' width='1' height='1'/%3E%3Crect x='6' y='2' width='1' height='1'/%3E%3Crect x='9' y='2' width='1' height='1'/%3E%3Crect x='10' y='2' width='1' height='1'/%3E%3Crect x='5' y='3' width='1' height='1'/%3E%3Crect x='6' y='3' width='1' height='1'/%3E%3Crect x='5' y='4' width='1' height='1'/%3E%3Crect x='6' y='4' width='1' height='1'/%3E%3Crect x='0' y='5' width='1' height='1'/%3E%3Crect x='1' y='5' width='1' height='1'/%3E%3Crect x='2' y='5' width='1' height='1'/%3E%3Crect x='3' y='5' width='1' height='1'/%3E%3Crect x='4' y='5' width='1' height='1'/%3E%3Crect x='5' y='5' width='1' height='1'/%3E%3Crect x='6' y='5' width='1' height='1'/%3E%3Crect x='7' y='5' width='1' height='1'/%3E%3Crect x='8' y='5' width='1' height='1'/%3E%3Crect x='9' y='5' width='1' height='1'/%3E%3Crect x='10' y='5' width='1' height='1'/%3E%3Crect x='11' y='5' width='1' height='1'/%3E%3Crect x='0' y='6' width='1' height='1'/%3E%3Crect x='1' y='6' width='1' height='1'/%3E%3Crect x='2' y='6' width='1' height='1'/%3E%3Crect x='3' y='6' width='1' height='1'/%3E%3Crect x='4' y='6' width='1' height='1'/%3E%3Crect x='5' y='6' width='1' height='1'/%3E%3Crect x='6' y='6' width='1' height='1'/%3E%3Crect x='7' y='6' width='1' height='1'/%3E%3Crect x='8' y='6' width='1' height='1'/%3E%3Crect x='9' y='6' width='1' height='1'/%3E%3Crect x='10' y='6' width='1' height='1'/%3E%3Crect x='11' y='6' width='1' height='1'/%3E%3Crect x='0' y='7' width='1' height='1'/%3E%3Crect x='1' y='7' width='1' height='1'/%3E%3Crect x='2' y='7' width='1' height='1'/%3E%3Crect x='3' y='7' width='1' height='1'/%3E%3Crect x='4' y='7' width='1' height='1'/%3E%3Crect x='7' y='7' width='1' height='1'/%3E%3Crect x='8' y='7' width='1' height='1'/%3E%3Crect x='9' y='7' width='1' height='1'/%3E%3Crect x='10' y='7' width='1' height='1'/%3E%3Crect x='11' y='7' width='1' height='1'/%3E%3Crect x='0' y='8' width='1' height='1'/%3E%3Crect x='1' y='8' width='1' height='1'/%3E%3Crect x='2' y='8' width='1' height='1'/%3E%3Crect x='3' y='8' width='1' height='1'/%3E%3Crect x='8' y='8' width='1' height='1'/%3E%3Crect x='9' y='8' width='1' height='1'/%3E%3Crect x='10' y='8' width='1' height='1'/%3E%3Crect x='11' y='8' width='1' height='1'/%3E%3Crect x='0' y='9' width='1' height='1'/%3E%3Crect x='1' y='9' width='1' height='1'/%3E%3Crect x='2' y='9' width='1' height='1'/%3E%3Crect x='3' y='9' width='1' height='1'/%3E%3Crect x='4' y='9' width='1' height='1'/%3E%3Crect x='7' y='9' width='1' height='1'/%3E%3Crect x='8' y='9' width='1' height='1'/%3E%3Crect x='9' y='9' width='1' height='1'/%3E%3Crect x='10' y='9' width='1' height='1'/%3E%3Crect x='11' y='9' width='1' height='1'/%3E%3Crect x='0' y='10' width='1' height='1'/%3E%3Crect x='1' y='10' width='1' height='1'/%3E%3Crect x='2' y='10' width='1' height='1'/%3E%3Crect x='3' y='10' width='1' height='1'/%3E%3Crect x='4' y='10' width='1' height='1'/%3E%3Crect x='7' y='10' width='1' height='1'/%3E%3Crect x='8' y='10' width='1' height='1'/%3E%3Crect x='9' y='10' width='1' height='1'/%3E%3Crect x='10' y='10' width='1' height='1'/%3E%3Crect x='11' y='10' width='1' height='1'/%3E%3Crect x='0' y='11' width='1' height='1'/%3E%3Crect x='1' y='11' width='1' height='1'/%3E%3Crect x='2' y='11' width='1' height='1'/%3E%3Crect x='3' y='11' width='1' height='1'/%3E%3Crect x='4' y='11' width='1' height='1'/%3E%3Crect x='5' y='11' width='1' height='1'/%3E%3Crect x='6' y='11' width='1' height='1'/%3E%3Crect x='7' y='11' width='1' height='1'/%3E%3Crect x='8' y='11' width='1' height='1'/%3E%3Crect x='9' y='11' width='1' height='1'/%3E%3Crect x='10' y='11' width='1' height='1'/%3E%3Crect x='11' y='11' width='1' height='1'/%3E%3Crect x='0' y='12' width='1' height='1'/%3E%3Crect x='1' y='12' width='1' height='1'/%3E%3Crect x='2' y='12' width='1' height='1'/%3E%3Crect x='3' y='12' width='1' height='1'/%3E%3Crect x='4' y='12' width='1' height='1'/%3E%3Crect x='5' y='12' width='1' height='1'/%3E%3Crect x='6' y='12' width='1' height='1'/%3E%3Crect x='7' y='12' width='1' height='1'/%3E%3Crect x='8' y='12' width='1' height='1'/%3E%3Crect x='9' y='12' width='1' height='1'/%3E%3Crect x='10' y='12' width='1' height='1'/%3E%3Crect x='11' y='12' width='1' height='1'/%3E%3C/svg%3E");
-	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 13' shape-rendering='crispEdges'%3E%3Crect x='6' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='8' y='0' width='1' height='1'/%3E%3Crect x='9' y='0' width='1' height='1'/%3E%3Crect x='5' y='1' width='1' height='1'/%3E%3Crect x='6' y='1' width='1' height='1'/%3E%3Crect x='9' y='1' width='1' height='1'/%3E%3Crect x='10' y='1' width='1' height='1'/%3E%3Crect x='5' y='2' width='1' height='1'/%3E%3Crect x='6' y='2' width='1' height='1'/%3E%3Crect x='9' y='2' width='1' height='1'/%3E%3Crect x='10' y='2' width='1' height='1'/%3E%3Crect x='5' y='3' width='1' height='1'/%3E%3Crect x='6' y='3' width='1' height='1'/%3E%3Crect x='5' y='4' width='1' height='1'/%3E%3Crect x='6' y='4' width='1' height='1'/%3E%3Crect x='0' y='5' width='1' height='1'/%3E%3Crect x='1' y='5' width='1' height='1'/%3E%3Crect x='2' y='5' width='1' height='1'/%3E%3Crect x='3' y='5' width='1' height='1'/%3E%3Crect x='4' y='5' width='1' height='1'/%3E%3Crect x='5' y='5' width='1' height='1'/%3E%3Crect x='6' y='5' width='1' height='1'/%3E%3Crect x='7' y='5' width='1' height='1'/%3E%3Crect x='8' y='5' width='1' height='1'/%3E%3Crect x='9' y='5' width='1' height='1'/%3E%3Crect x='10' y='5' width='1' height='1'/%3E%3Crect x='11' y='5' width='1' height='1'/%3E%3Crect x='0' y='6' width='1' height='1'/%3E%3Crect x='1' y='6' width='1' height='1'/%3E%3Crect x='2' y='6' width='1' height='1'/%3E%3Crect x='3' y='6' width='1' height='1'/%3E%3Crect x='4' y='6' width='1' height='1'/%3E%3Crect x='5' y='6' width='1' height='1'/%3E%3Crect x='6' y='6' width='1' height='1'/%3E%3Crect x='7' y='6' width='1' height='1'/%3E%3Crect x='8' y='6' width='1' height='1'/%3E%3Crect x='9' y='6' width='1' height='1'/%3E%3Crect x='10' y='6' width='1' height='1'/%3E%3Crect x='11' y='6' width='1' height='1'/%3E%3Crect x='0' y='7' width='1' height='1'/%3E%3Crect x='1' y='7' width='1' height='1'/%3E%3Crect x='2' y='7' width='1' height='1'/%3E%3Crect x='3' y='7' width='1' height='1'/%3E%3Crect x='4' y='7' width='1' height='1'/%3E%3Crect x='7' y='7' width='1' height='1'/%3E%3Crect x='8' y='7' width='1' height='1'/%3E%3Crect x='9' y='7' width='1' height='1'/%3E%3Crect x='10' y='7' width='1' height='1'/%3E%3Crect x='11' y='7' width='1' height='1'/%3E%3Crect x='0' y='8' width='1' height='1'/%3E%3Crect x='1' y='8' width='1' height='1'/%3E%3Crect x='2' y='8' width='1' height='1'/%3E%3Crect x='3' y='8' width='1' height='1'/%3E%3Crect x='8' y='8' width='1' height='1'/%3E%3Crect x='9' y='8' width='1' height='1'/%3E%3Crect x='10' y='8' width='1' height='1'/%3E%3Crect x='11' y='8' width='1' height='1'/%3E%3Crect x='0' y='9' width='1' height='1'/%3E%3Crect x='1' y='9' width='1' height='1'/%3E%3Crect x='2' y='9' width='1' height='1'/%3E%3Crect x='3' y='9' width='1' height='1'/%3E%3Crect x='4' y='9' width='1' height='1'/%3E%3Crect x='7' y='9' width='1' height='1'/%3E%3Crect x='8' y='9' width='1' height='1'/%3E%3Crect x='9' y='9' width='1' height='1'/%3E%3Crect x='10' y='9' width='1' height='1'/%3E%3Crect x='11' y='9' width='1' height='1'/%3E%3Crect x='0' y='10' width='1' height='1'/%3E%3Crect x='1' y='10' width='1' height='1'/%3E%3Crect x='2' y='10' width='1' height='1'/%3E%3Crect x='3' y='10' width='1' height='1'/%3E%3Crect x='4' y='10' width='1' height='1'/%3E%3Crect x='7' y='10' width='1' height='1'/%3E%3Crect x='8' y='10' width='1' height='1'/%3E%3Crect x='9' y='10' width='1' height='1'/%3E%3Crect x='10' y='10' width='1' height='1'/%3E%3Crect x='11' y='10' width='1' height='1'/%3E%3Crect x='0' y='11' width='1' height='1'/%3E%3Crect x='1' y='11' width='1' height='1'/%3E%3Crect x='2' y='11' width='1' height='1'/%3E%3Crect x='3' y='11' width='1' height='1'/%3E%3Crect x='4' y='11' width='1' height='1'/%3E%3Crect x='5' y='11' width='1' height='1'/%3E%3Crect x='6' y='11' width='1' height='1'/%3E%3Crect x='7' y='11' width='1' height='1'/%3E%3Crect x='8' y='11' width='1' height='1'/%3E%3Crect x='9' y='11' width='1' height='1'/%3E%3Crect x='10' y='11' width='1' height='1'/%3E%3Crect x='11' y='11' width='1' height='1'/%3E%3Crect x='0' y='12' width='1' height='1'/%3E%3Crect x='1' y='12' width='1' height='1'/%3E%3Crect x='2' y='12' width='1' height='1'/%3E%3Crect x='3' y='12' width='1' height='1'/%3E%3Crect x='4' y='12' width='1' height='1'/%3E%3Crect x='5' y='12' width='1' height='1'/%3E%3Crect x='6' y='12' width='1' height='1'/%3E%3Crect x='7' y='12' width='1' height='1'/%3E%3Crect x='8' y='12' width='1' height='1'/%3E%3Crect x='9' y='12' width='1' height='1'/%3E%3Crect x='10' y='12' width='1' height='1'/%3E%3Crect x='11' y='12' width='1' height='1'/%3E%3C/svg%3E");
-}
-
-/* cartoon: a bouncier open */
-.vault-lock-overlay.vl-theme-cartoon.is-unlocking .vault-lock-icon svg { fill: var(--vl-c-yel); }
-
-/* hidden field in the themed cards: group icon + text + prompt in the middle, glide up on reveal */
-.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal {
-	--vl-shift: calc((var(--vl-slot-h, 90px) - 18px) / 2);
-}
-
-.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal :is(.vault-lock-icon, .vault-lock-title, .vault-lock-reveal-hint) {
-	transform: translateY(var(--vl-shift));
-	transition: transform 0.32s ease;
-}
-
-.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal .vault-lock-reveal-hint {
-	align-items: flex-start; /* directly under the text instead of far below it */
-}
-
-.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal .vault-lock-card:hover :is(.vault-lock-icon, .vault-lock-title, .vault-lock-reveal-hint),
-.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal .vault-lock-card:has(.vault-lock-form:focus-within) :is(.vault-lock-icon, .vault-lock-title, .vault-lock-reveal-hint),
-.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal .vault-lock-card:has(.vault-lock-input:not(:placeholder-shown)) :is(.vault-lock-icon, .vault-lock-title, .vault-lock-reveal-hint),
-.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal:is(.has-message, .is-busy, .is-unlocking) :is(.vault-lock-icon, .vault-lock-title, .vault-lock-reveal-hint) {
-	transform: none;
-}
-
 @media (prefers-reduced-motion: reduce) {
 	.vault-lock-overlay,
 	.vault-lock-icon,
 	.vault-lock-title,
-	.vault-lock-overlay.is-denied .vault-lock-card,
+	.vault-lock-overlay.is-error .vault-lock-input,
 	.vault-lock-overlay.is-unlocking,
 	.vault-lock-overlay.is-unlocking .vault-lock-icon { animation: none; }
-	.vault-lock-overlay:is(.vl-theme-retro, .vl-theme-cartoon).hover-reveal :is(.vault-lock-icon, .vault-lock-title, .vault-lock-reveal-hint) { transition: none; }
 }
 
-/* an explicit shape choice beats the theme's own */
+/* an explicit shape choice beats the theme's own. --vl-radius feeds the generic rule near the top, but every theme sets its
+ * own border-radius with a more specific selector and won, so the choice was ignored in all of them. These selectors
+ * outrank the theme rules ([data-theme] adds one attribute to the count). */
 .vault-lock-overlay.shape-round { --vl-radius: 6px; }
 .vault-lock-overlay.shape-pill { --vl-radius: 999px; }
 .vault-lock-overlay.shape-square { --vl-radius: 0; }
+.vault-lock-overlay.shape-round[data-theme] :is(.vault-lock-input, .vault-lock-button) { border-radius: 6px; }
+.vault-lock-overlay.shape-pill[data-theme] :is(.vault-lock-input, .vault-lock-button) { border-radius: 999px; }
+.vault-lock-overlay.shape-square[data-theme] :is(.vault-lock-input, .vault-lock-button) { border-radius: 0; }
+
+/* Activity log in the settings tab */
+.vault-lock-log { margin: 0 0 1em; padding-left: 1.2em; font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* The recovery key shown once in its dialog */
+.vault-lock-recovery-key { display: block; margin: 12px 0; padding: 12px; text-align: center; font-size: 1.25em; letter-spacing: 0.08em; user-select: all; }

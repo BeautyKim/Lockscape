@@ -1,7 +1,7 @@
 {
-  "name": "obsidian-vault-lock",
+  "name": "lockscape",
   "version": "0.1.0",
-  "description": "Password lock screen for Obsidian (desktop + mobile). No runtime dependencies, no network.",
+  "description": "Password lock screen for Obsidian (desktop only). No runtime dependencies, no network.",
   "private": true,
   "license": "MIT",
   "scripts": {

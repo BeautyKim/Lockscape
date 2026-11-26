@@ -1,11 +1,9 @@
 // Motion graphics that follow the mouse / finger on the lock screen. One <canvas>, drawn with
 // requestAnimationFrame only while something is moving; stopped when the window is hidden.
-// Each visual theme draws the same three effects in its own style.
 
 import { resolveColor, type RGB } from "./color";
 
 export type PointerFxKind = "glow" | "trail" | "orbs";
-export type FxTheme = "default" | "retro" | "cartoon";
 
 interface Particle {
 	x: number;
@@ -33,13 +31,6 @@ interface Orb {
 	w: number; // angular speed
 }
 
-const BAYER = [
-	[0, 8, 2, 10],
-	[12, 4, 14, 6],
-	[3, 11, 1, 9],
-	[15, 7, 13, 5],
-];
-const PIXEL = 6; // retro: one canvas cell = 6 CSS px
 const MAX_PARTICLES = 90;
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
@@ -69,7 +60,6 @@ export class PointerFx {
 		private readonly win: Window,
 		host: HTMLElement,
 		private readonly kind: PointerFxKind,
-		private readonly theme: FxTheme,
 		private readonly colors: string[],
 	) {
 		this.rgb = colors.map((c) => resolveColor(doc, c) ?? [124, 92, 214]);
@@ -154,10 +144,9 @@ export class PointerFx {
 		this.w = this.win.innerWidth;
 		this.h = this.win.innerHeight;
 		const dpr = Math.min(2, this.win.devicePixelRatio || 1);
-		this.scale = this.theme === "retro" ? 1 / PIXEL : dpr;
+		this.scale = dpr;
 		this.canvas.width = Math.max(1, Math.ceil(this.w * this.scale));
 		this.canvas.height = Math.max(1, Math.ceil(this.h * this.scale));
-		this.canvas.style.imageRendering = this.theme === "retro" ? "pixelated" : "auto";
 		this.draw(performance.now() / 1000);
 	}
 
@@ -180,8 +169,7 @@ export class PointerFx {
 				p.x += p.vx * dt;
 				p.y += p.vy * dt;
 				p.rot += p.vr * dt;
-				if (this.theme === "retro") p.vy += 300 * dt; // falling pixels
-				else p.vx *= 1 - 0.8 * dt;
+				p.vx *= 1 - 0.8 * dt;
 			}
 			for (let i = this.particles.length - 1; i >= 0; i--) if (this.particles[i].age >= this.particles[i].life) this.particles.splice(i, 1);
 		}
@@ -216,7 +204,7 @@ export class PointerFx {
 				y: this.h / 2,
 				vx: 0,
 				vy: 0,
-				r: this.theme === "retro" ? rnd(2, 4.5) * PIXEL : rnd(16, 36),
+				r: rnd(16, 36),
 				ci: i % this.colors.length,
 				k: 0.012 + i * 0.011,
 				ang: (i / n) * Math.PI * 2,
@@ -230,20 +218,19 @@ export class PointerFx {
 		const dx = x - this.last.x;
 		const dy = y - this.last.y;
 		const dist = Math.hypot(dx, dy);
-		const spacing = this.theme === "cartoon" ? 26 : this.theme === "retro" ? 14 : 9;
+		const spacing = 9;
 		const n = Math.min(6, Math.floor(dist / spacing));
 		for (let i = 1; i <= n; i++) {
 			if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
 			const f = i / n;
-			const cartoon = this.theme === "cartoon";
 			this.particles.push({
 				x: this.last.x + dx * f,
 				y: this.last.y + dy * f,
 				vx: rnd(-18, 18),
-				vy: this.theme === "retro" ? rnd(-30, 10) : rnd(-18, 18),
+				vy: rnd(-18, 18),
 				age: 0,
-				life: cartoon ? rnd(0.7, 1.0) : this.theme === "retro" ? rnd(0.7, 1.1) : rnd(0.8, 1.3),
-				size: cartoon ? rnd(10, 19) : this.theme === "retro" ? 1 + Math.floor(Math.random() * 2) : rnd(5, 13),
+				life: rnd(0.8, 1.3),
+				size: rnd(5, 13),
 				rot: rnd(0, Math.PI * 2),
 				vr: rnd(-3, 3),
 				ci: Math.floor(Math.random() * this.colors.length),
@@ -258,18 +245,8 @@ export class PointerFx {
 		if (!ctx) return;
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-		// Retro draws in grid cells (it divides coordinates by PIXEL itself), so its transform is the identity;
-		// the other themes draw in CSS px and let the transform scale up for high-DPI screens.
-		const k = this.theme === "retro" ? 1 : this.scale;
-		ctx.setTransform(k, 0, 0, k, 0, 0);
-
-		if (this.theme === "retro") this.drawRetro(ctx, time);
-		else if (this.theme === "cartoon") this.drawCartoon(ctx, time);
-		else this.drawDefault(ctx, time);
-	}
-
-	private color(i: number): string {
-		return this.colors[i % this.colors.length];
+		ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0); // draw in CSS px; the transform scales up for high-DPI screens
+		this.drawDefault(ctx, time);
 	}
 
 	/** Same colour at a given alpha. Gradients must fade to this, not to "transparent" (transparent black),
@@ -318,129 +295,5 @@ export class PointerFx {
 			}
 		}
 		ctx.globalAlpha = 1;
-	}
-
-	/** Pixel style: everything on a coarse grid (the canvas itself is low-res and scaled up crisply). */
-	private drawRetro(ctx: CanvasRenderingContext2D, time: number): void {
-		const cell = (x: number, y: number, c: string) => {
-			ctx.fillStyle = c;
-			ctx.fillRect(Math.floor(x / PIXEL), Math.floor(y / PIXEL), 1, 1);
-		};
-		if (this.kind === "glow") {
-			const R = Math.min(this.w, this.h) * 0.3;
-			const cx = Math.floor(this.pos.x / PIXEL);
-			const cy = Math.floor(this.pos.y / PIXEL);
-			const rc = Math.ceil(R / PIXEL);
-			const strength = this.glowAlpha;
-			for (let y = -rc; y <= rc; y++) {
-				for (let x = -rc; x <= rc; x++) {
-					const d = Math.hypot(x, y) / rc;
-					if (d >= 1) continue;
-					const level = (1 - d) * strength;
-					// ordered dithering: a cell lights up when its intensity beats the Bayer threshold
-					if (level > BAYER[(cy + y) & 3][(cx + x) & 3] / 16 + 0.04) {
-						ctx.fillStyle = d < 0.45 ? this.color(1) : this.color(0);
-						ctx.fillRect(cx + x, cy + y, 1, 1);
-					}
-				}
-			}
-		} else if (this.kind === "trail") {
-			for (const p of this.particles) {
-				const f = 1 - p.age / p.life;
-				if (f < 0.3 && Math.floor(time * 18 + p.ci) % 2 === 0) continue; // blink out like a sprite
-				const s = p.size;
-				ctx.fillStyle = this.color(p.ci);
-				ctx.fillRect(Math.floor(p.x / PIXEL), Math.floor(p.y / PIXEL), s, s);
-			}
-		} else {
-			for (const o of this.orbs) {
-				const cx = Math.round(o.x / PIXEL);
-				const cy = Math.round(o.y / PIXEL);
-				const r = Math.round(o.r / PIXEL);
-				for (let y = -r; y <= r; y++) {
-					for (let x = -r; x <= r; x++) {
-						const d = x * x + y * y;
-						if (d > r * r + 1) continue;
-						ctx.fillStyle = d > (r - 1) * (r - 1) ? "#0d0b1e" : this.color(o.ci); // 1-cell outline
-						ctx.fillRect(cx + x, cy + y, 1, 1);
-					}
-				}
-				cell(o.x - o.r * 0.4, o.y - o.r * 0.4, "#ffffff"); // highlight pixel
-			}
-		}
-	}
-
-	/** Comic style: halftone dots, outlined stars, glossy outlined balls. */
-	private drawCartoon(ctx: CanvasRenderingContext2D, _time: number): void {
-		const ink = "#111";
-		if (this.kind === "glow") {
-			const R = Math.min(this.w, this.h) * 0.3;
-			const step = 15;
-			const x0 = Math.floor((this.pos.x - R) / step) * step;
-			const y0 = Math.floor((this.pos.y - R) / step) * step;
-			ctx.fillStyle = this.color(1);
-			ctx.globalAlpha = 0.75 * this.glowAlpha;
-			for (let y = y0; y < this.pos.y + R; y += step) {
-				for (let x = x0; x < this.pos.x + R; x += step) {
-					const ox = ((y / step) & 1) * (step / 2); // offset every other row like a real halftone screen
-					const px = x + ox;
-					const d = Math.hypot(px - this.pos.x, y - this.pos.y) / R;
-					if (d >= 1) continue;
-					const r = (1 - d) * (step * 0.62);
-					ctx.beginPath();
-					ctx.arc(px, y, r, 0, Math.PI * 2);
-					ctx.fill();
-				}
-			}
-			ctx.globalAlpha = 1;
-		} else if (this.kind === "trail") {
-			for (const p of this.particles) {
-				const f = 1 - p.age / p.life;
-				const pop = f > 0.85 ? 0.6 + (1 - f) * 8 : 0.35 + f * 0.65; // quick overshoot then shrink
-				ctx.save();
-				ctx.translate(p.x, p.y);
-				ctx.rotate(p.rot);
-				ctx.scale(pop, pop);
-				ctx.lineWidth = 3;
-				ctx.strokeStyle = ink;
-				ctx.fillStyle = this.color(p.ci);
-				this.star(ctx, p.size, p.size * 0.45, 5);
-				ctx.fill();
-				ctx.stroke();
-				ctx.restore();
-			}
-		} else {
-			for (const o of this.orbs) {
-				ctx.fillStyle = "rgba(0,0,0,0.3)";
-				ctx.beginPath();
-				ctx.arc(o.x + 4, o.y + 4, o.r, 0, Math.PI * 2);
-				ctx.fill();
-				ctx.lineWidth = 3.5;
-				ctx.strokeStyle = ink;
-				ctx.fillStyle = this.color(o.ci);
-				ctx.beginPath();
-				ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
-				ctx.fill();
-				ctx.stroke();
-				ctx.strokeStyle = "rgba(255,255,255,0.9)"; // gloss highlight
-				ctx.lineWidth = 3;
-				ctx.beginPath();
-				ctx.arc(o.x, o.y, o.r * 0.62, Math.PI * 1.15, Math.PI * 1.5);
-				ctx.stroke();
-			}
-		}
-	}
-
-	private star(ctx: CanvasRenderingContext2D, outer: number, inner: number, points: number): void {
-		ctx.beginPath();
-		for (let i = 0; i < points * 2; i++) {
-			const r = i % 2 === 0 ? outer : inner;
-			const a = (i * Math.PI) / points - Math.PI / 2;
-			const x = Math.cos(a) * r;
-			const y = Math.sin(a) * r;
-			if (i === 0) ctx.moveTo(x, y);
-			else ctx.lineTo(x, y);
-		}
-		ctx.closePath();
 	}
 }

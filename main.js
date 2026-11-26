@@ -124,8 +124,12 @@ async function chooseVideo(app, pluginDir, doc) {
   const ext = extOf(file);
   if (!ext || file.size > MAX_VIDEO_BYTES) throw new Error("unsupported video");
   await verifyPlayable(file, doc);
-  await removeVideo(app, pluginDir);
   await app.vault.adapter.writeBinary(videoPath(pluginDir, ext), await file.arrayBuffer());
+  for (const other of VIDEO_EXTS) {
+    if (other === ext) continue;
+    const path = videoPath(pluginDir, other);
+    if (await app.vault.adapter.exists(path)) await app.vault.adapter.remove(path);
+  }
   return ext;
 }
 async function removeVideo(app, pluginDir) {
@@ -133,6 +137,40 @@ async function removeVideo(app, pluginDir) {
     const path = videoPath(pluginDir, ext);
     if (await app.vault.adapter.exists(path)) await app.vault.adapter.remove(path);
   }
+}
+
+// src/activitylog.ts
+var LOG_LIMIT = 50;
+var LOCK_REASONS = ["startup", "idle", "left", "manual", "system"];
+var KINDS = ["lock", "unlock", "fail", "recover"];
+function parseLog(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const x of raw) {
+    if (typeof x !== "object" || x === null) continue;
+    const e = x;
+    if (typeof e.t !== "number" || !Number.isFinite(e.t) || e.t < 0) continue;
+    if (typeof e.k !== "string" || !KINDS.includes(e.k)) continue;
+    const entry = { t: Math.floor(e.t), k: e.k };
+    if (entry.k === "lock" && typeof e.r === "string" && LOCK_REASONS.includes(e.r)) entry.r = e.r;
+    out.push(entry);
+  }
+  return out.slice(-LOG_LIMIT);
+}
+function mergeLogs(a, b) {
+  const seen = /* @__PURE__ */ new Set();
+  const all = [];
+  for (const e of [...a, ...b]) {
+    const key = `${e.t}|${e.k}|${e.r ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    all.push(e);
+  }
+  all.sort((x, y) => x.t - y.t);
+  return all.slice(-LOG_LIMIT);
+}
+function appendLog(log, entry) {
+  return [...log, entry].slice(-LOG_LIMIT);
 }
 
 // src/color.ts
@@ -161,6 +199,20 @@ function themeAccent(doc) {
   const raw = doc.defaultView?.getComputedStyle(doc.body).getPropertyValue("--interactive-accent").trim() ?? "";
   return raw && resolveColor(doc, raw) || resolveColor(doc, DEFAULT_ACCENT) || [124, 92, 214];
 }
+var linear = (v) => {
+  const c = v / 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+};
+function contrastRatio(a, b) {
+  const lum = ([r, g, bl]) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(bl);
+  const x = lum(a);
+  const y = lum(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+function inkFor(bg) {
+  if (contrastRatio([255, 255, 255], bg) >= 4.5) return "#ffffff";
+  return contrastRatio([17, 17, 17], bg) >= 4.5 ? "#111111" : "#ffffff";
+}
 function rgbToHsl([r, g, b]) {
   r /= 255;
   g /= 255;
@@ -185,6 +237,28 @@ function palette(base) {
   const [h, s] = rgbToHsl(base);
   const sat = Math.min(0.85, Math.max(0.55, s));
   return [hsl(h, sat, 0.6), hsl(h + 38, sat, 0.58), hsl(h - 42, sat, 0.62)];
+}
+
+// src/devicesettings.ts
+var DEVICE_KEYS = [
+  "idleMinutes",
+  "lockOnHide",
+  "graceSeconds",
+  "coverOnBlur",
+  "lockOnSystemLock",
+  "shrinkOnLock",
+  "lockWindowSize"
+];
+function pickDevice(settings) {
+  const out = {};
+  for (const k of DEVICE_KEYS) out[k] = settings[k];
+  return out;
+}
+function applyDevice(shared, local) {
+  if (typeof local !== "object" || local === null) return shared;
+  const out = { ...shared };
+  for (const k of DEVICE_KEYS) if (k in local) out[k] = local[k];
+  return out;
 }
 
 // src/crypto.ts
@@ -228,12 +302,44 @@ function equalConstantTime(a, b) {
 }
 async function createCredential(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await derive(password, salt, ITERATIONS);
-  return { v: 1, salt: toB64(salt), iter: ITERATIONS, hash: toB64(hash) };
+  const hash2 = await derive(password, salt, ITERATIONS);
+  return { v: 1, salt: toB64(salt), iter: ITERATIONS, hash: toB64(hash2) };
 }
 async function verifyPassword(password, cred) {
-  const hash = await derive(password, fromB64(cred.salt), cred.iter);
-  return equalConstantTime(hash, fromB64(cred.hash));
+  const hash2 = await derive(password, fromB64(cred.salt), cred.iter);
+  return equalConstantTime(hash2, fromB64(cred.hash));
+}
+var RK_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+var RECOVERY_KEY_LENGTH = 24;
+function generateRecoveryKey() {
+  const bytes = crypto.getRandomValues(new Uint8Array(RECOVERY_KEY_LENGTH * 5 / 8));
+  let bits = 0;
+  let acc = 0;
+  let out = "";
+  for (const b of bytes) {
+    acc = acc << 8 | b;
+    bits += 8;
+    while (bits >= 5) {
+      out += RK_ALPHABET[acc >> bits - 5 & 31];
+      bits -= 5;
+    }
+    acc &= (1 << bits) - 1;
+  }
+  return out.match(/.{4}/g).join("-");
+}
+function normalizeRecoveryKey(input) {
+  return input.normalize("NFKC").toUpperCase().replace(/[^0-9A-Z]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+}
+function looksLikeRecoveryKey(input) {
+  const n = normalizeRecoveryKey(input);
+  return n.length === RECOVERY_KEY_LENGTH && [...n].every((c) => RK_ALPHABET.includes(c));
+}
+async function createRecoveryCredential(key) {
+  return createCredential(normalizeRecoveryKey(key));
+}
+async function verifyRecoveryKey(input, cred) {
+  if (!looksLikeRecoveryKey(input)) return false;
+  return verifyPassword(normalizeRecoveryKey(input), cred);
 }
 
 // src/i18n/en.ts
@@ -352,14 +458,54 @@ var en = {
   resetAppearanceBtn: "Reset",
   theme: "Theme",
   themeDefault: "Default",
-  themeRetro: "Retro game",
-  themeCartoon: "Cartoon (classic comics)",
+  themeWin95: "Windows 95",
+  themeTerminal: "Developer terminal",
+  themeSnake: "Handheld snake (game)",
+  themeBreakout: "Arcade breakout (game)",
+  themeRunner: "Obsidian runner (game)",
   themeAuto: "Theme default",
   animGlow: "Cursor spotlight",
   animTrail: "Cursor trail",
   animOrbs: "Chasing orbs",
-  pressAnyKey: "Press any key or tap",
-  unlocked: "Unlocked"
+  unlocked: "Unlocked",
+  forgot: "Forgot your password?",
+  recoverPlaceholder: "Recovery key",
+  recoverUnlock: "Unlock with recovery key",
+  backToPassword: "Use password instead",
+  modalReset: "Set a new password",
+  modalRecovery: "Create a recovery key",
+  resetIntro: "You unlocked with your recovery key. Choose a new password now. You will get a new recovery key too.",
+  recoveryKeyTitle: "Your recovery key",
+  recoveryKeyIntro: "Write this key down and keep it somewhere safe, away from this computer. It is shown only once and cannot be looked up later. If you forget your password, it unlocks the screen. Anyone who has it can unlock the screen.",
+  copyKey: "Copy",
+  copied: "Copied.",
+  keySaved: "I saved it",
+  recoveryRow: "Recovery key",
+  recoveryOn: "Set. Use \u201CForgot your password?\u201D on the lock screen.",
+  recoveryOff: "Not set. Without one, a forgotten password can only be fixed by editing data.json.",
+  makeRecovery: "Create",
+  renewRecovery: "Create new",
+  logRecovered: "Unlocked with recovery key",
+  hideScreen: "Hide screen (no password)",
+  hideHint: "Click or press Esc to show the screen again.",
+  coverOnBlur: "Cover when the window loses focus",
+  coverOnBlurDesc: "Covers the notes as soon as another app is in front, not only when the window is minimised. Coming back within the grace period needs no password. The Settings window does not count as leaving.",
+  lockOnSystemLock: "Lock when the computer locks or sleeps",
+  lockOnSystemLockDesc: "Desktop only. Locks when the operating system locks the screen or goes to sleep. Does nothing if this build of Obsidian does not expose it.",
+  deviceOnly: "Separate settings on this device",
+  deviceOnlyDesc: "Auto-lock time, leave-the-app options, cover on focus loss, system lock and window shrinking are kept on this device only and are not synced.",
+  logTitle: "Recent activity",
+  logDesc: "The last 50 locks, unlocks and wrong passwords on devices that sync this vault. Not tamper-proof: anyone who can edit data.json can edit it.",
+  logEmpty: "Nothing recorded yet.",
+  logClear: "Clear",
+  logLocked: "Locked",
+  logUnlocked: "Unlocked",
+  logFailed: "Wrong password",
+  reasonStartup: "startup",
+  reasonIdle: "idle",
+  reasonLeft: "left the app",
+  reasonManual: "manual",
+  reasonSystem: "computer locked"
 };
 var en_default = en;
 
@@ -479,14 +625,54 @@ var ko = {
   resetAppearanceBtn: "\uCD08\uAE30\uD654",
   theme: "\uD14C\uB9C8",
   themeDefault: "\uAE30\uBCF8",
-  themeRetro: "\uB808\uD2B8\uB85C \uAC8C\uC784",
-  themeCartoon: "\uCE74\uD230 (\uC61B\uB0A0 \uBBF8\uAD6D \uB9CC\uD654)",
+  themeWin95: "Windows 95",
+  themeTerminal: "\uAC1C\uBC1C\uC790 \uD130\uBBF8\uB110",
+  themeSnake: "\uAC8C\uC784\uBCF4\uC774 \uC2A4\uB124\uC774\uD06C (\uAC8C\uC784)",
+  themeBreakout: "\uC544\uCF00\uC774\uB4DC \uBCBD\uB3CC\uAE68\uAE30 (\uAC8C\uC784)",
+  themeRunner: "\uC635\uC2DC\uB514\uC5B8 \uB7EC\uB108 (\uAC8C\uC784)",
   themeAuto: "\uD14C\uB9C8 \uAE30\uBCF8",
   animGlow: "\uB9C8\uC6B0\uC2A4 \uC870\uBA85",
   animTrail: "\uB9C8\uC6B0\uC2A4 \uADA4\uC801",
   animOrbs: "\uB530\uB77C\uC624\uB294 \uAD6C\uC2AC",
-  pressAnyKey: "\uC544\uBB34 \uD0A4\uB098 \uB204\uB974\uAC70\uB098 \uD130\uCE58\uD558\uC138\uC694",
-  unlocked: "\uC7A0\uAE08 \uD574\uC81C\uB428"
+  unlocked: "\uC7A0\uAE08 \uD574\uC81C\uB428",
+  forgot: "\uBE44\uBC00\uBC88\uD638\uB97C \uC78A\uC73C\uC168\uB098\uC694?",
+  recoverPlaceholder: "\uBCF5\uAD6C \uD0A4",
+  recoverUnlock: "\uBCF5\uAD6C \uD0A4\uB85C \uD574\uC81C",
+  backToPassword: "\uBE44\uBC00\uBC88\uD638\uB85C \uD574\uC81C",
+  modalReset: "\uC0C8 \uBE44\uBC00\uBC88\uD638 \uC124\uC815",
+  modalRecovery: "\uBCF5\uAD6C \uD0A4 \uB9CC\uB4E4\uAE30",
+  resetIntro: "\uBCF5\uAD6C \uD0A4\uB85C \uC7A0\uAE08\uC744 \uD480\uC5C8\uC2B5\uB2C8\uB2E4. \uC9C0\uAE08 \uC0C8 \uBE44\uBC00\uBC88\uD638\uB97C \uC815\uD558\uC138\uC694. \uC0C8 \uBCF5\uAD6C \uD0A4\uB3C4 \uD568\uAED8 \uBC1C\uAE09\uB429\uB2C8\uB2E4.",
+  recoveryKeyTitle: "\uBCF5\uAD6C \uD0A4",
+  recoveryKeyIntro: "\uC774 \uD0A4\uB97C \uC801\uC5B4\uC11C \uC774 \uCEF4\uD4E8\uD130\uC640 \uB5A8\uC5B4\uC9C4 \uC548\uC804\uD55C \uACF3\uC5D0 \uBCF4\uAD00\uD558\uC138\uC694. \uD55C \uBC88\uB9CC \uBCF4\uC5EC \uC8FC\uBA70 \uB098\uC911\uC5D0 \uB2E4\uC2DC \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBE44\uBC00\uBC88\uD638\uB97C \uC78A\uC73C\uBA74 \uC774 \uD0A4\uB85C \uD654\uBA74\uC744 \uD480 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC774 \uD0A4\uB97C \uAC00\uC9C4 \uC0AC\uB78C\uC740 \uB204\uAD6C\uB098 \uD654\uBA74\uC744 \uD480 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  copyKey: "\uBCF5\uC0AC",
+  copied: "\uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.",
+  keySaved: "\uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4",
+  recoveryRow: "\uBCF5\uAD6C \uD0A4",
+  recoveryOn: '\uC124\uC815\uB428. \uC7A0\uAE08 \uD654\uBA74\uC758 "\uBE44\uBC00\uBC88\uD638\uB97C \uC78A\uC73C\uC168\uB098\uC694?"\uC5D0\uC11C \uC501\uB2C8\uB2E4.',
+  recoveryOff: "\uC124\uC815 \uC548 \uB428. \uC5C6\uC73C\uBA74 \uBE44\uBC00\uBC88\uD638\uB97C \uC78A\uC5C8\uC744 \uB54C data.json\uC744 \uC9C1\uC811 \uACE0\uCCD0\uC57C \uD569\uB2C8\uB2E4.",
+  makeRecovery: "\uB9CC\uB4E4\uAE30",
+  renewRecovery: "\uC0C8\uB85C \uB9CC\uB4E4\uAE30",
+  logRecovered: "\uBCF5\uAD6C \uD0A4\uB85C \uD574\uC81C\uB428",
+  hideScreen: "\uD654\uBA74 \uAC00\uB9AC\uAE30 (\uBE44\uBC00\uBC88\uD638 \uC5C6\uC74C)",
+  hideHint: "\uD074\uB9AD\uD558\uAC70\uB098 Esc\uB97C \uB204\uB974\uBA74 \uD654\uBA74\uC774 \uB2E4\uC2DC \uBCF4\uC785\uB2C8\uB2E4.",
+  coverOnBlur: "\uCC3D\uC774 \uD3EC\uCEE4\uC2A4\uB97C \uC783\uC73C\uBA74 \uAC00\uB9AC\uAE30",
+  coverOnBlurDesc: "\uCC3D\uC744 \uCD5C\uC18C\uD654\uD560 \uB54C\uB9CC\uC774 \uC544\uB2C8\uB77C \uB2E4\uB978 \uC571\uC774 \uC55E\uC73C\uB85C \uC624\uB294 \uC21C\uAC04 \uB178\uD2B8\uB97C \uAC00\uB9BD\uB2C8\uB2E4. \uC720\uC608 \uC2DC\uAC04 \uC548\uC5D0 \uB3CC\uC544\uC624\uBA74 \uBE44\uBC00\uBC88\uD638\uB97C \uBB3B\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC124\uC815 \uCC3D\uC740 \uBC97\uC5B4\uB09C \uAC83\uC73C\uB85C \uBCF4\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+  lockOnSystemLock: "\uCEF4\uD4E8\uD130\uAC00 \uC7A0\uAE30\uAC70\uB098 \uC808\uC804\uB418\uBA74 \uC7A0\uAE08",
+  lockOnSystemLockDesc: "\uB370\uC2A4\uD06C\uD1B1 \uC804\uC6A9. \uC6B4\uC601\uCCB4\uC81C\uAC00 \uD654\uBA74\uC744 \uC7A0\uADF8\uAC70\uB098 \uC808\uC804\uC5D0 \uB4E4\uC5B4\uAC00\uBA74 \uC7A0\uAE09\uB2C8\uB2E4. \uC774 Obsidian \uBE4C\uB4DC\uAC00 \uD574\uB2F9 \uAE30\uB2A5\uC744 \uC81C\uACF5\uD558\uC9C0 \uC54A\uC73C\uBA74 \uB3D9\uC791\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+  deviceOnly: "\uC774 \uAE30\uAE30 \uC804\uC6A9 \uC124\uC815",
+  deviceOnlyDesc: "\uC790\uB3D9 \uC7A0\uAE08 \uC2DC\uAC04, \uC571\uC744 \uBC97\uC5B4\uB0A0 \uB54C \uC635\uC158, \uD3EC\uCEE4\uC2A4\uB97C \uC783\uC73C\uBA74 \uAC00\uB9AC\uAE30, \uC2DC\uC2A4\uD15C \uC7A0\uAE08, \uCC3D \uC904\uC774\uAE30\uB97C \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uD558\uACE0 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+  logTitle: "\uCD5C\uADFC \uAE30\uB85D",
+  logDesc: "\uC774 \uBCFC\uD2B8\uB97C \uB3D9\uAE30\uD654\uD558\uB294 \uAE30\uAE30\uB4E4\uC758 \uCD5C\uADFC \uC7A0\uAE08\xB7\uD574\uC81C\xB7\uBE44\uBC00\uBC88\uD638 \uC624\uB958 50\uAC74\uC785\uB2C8\uB2E4. \uBCC0\uC870\uB97C \uB9C9\uC9C0\uB294 \uBABB\uD569\uB2C8\uB2E4. data.json\uC744 \uACE0\uCE60 \uC218 \uC788\uB294 \uC0AC\uB78C\uC740 \uC774 \uAE30\uB85D\uB3C4 \uACE0\uCE60 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  logEmpty: "\uC544\uC9C1 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  logClear: "\uC9C0\uC6B0\uAE30",
+  logLocked: "\uC7A0\uAE40",
+  logUnlocked: "\uD574\uC81C\uB428",
+  logFailed: "\uBE44\uBC00\uBC88\uD638 \uC624\uB958",
+  reasonStartup: "\uC2DC\uC791",
+  reasonIdle: "\uBBF8\uC0AC\uC6A9",
+  reasonLeft: "\uC571\uC744 \uBC97\uC5B4\uB0A8",
+  reasonManual: "\uC218\uB3D9",
+  reasonSystem: "\uCEF4\uD4E8\uD130 \uC7A0\uAE08"
 };
 var ko_default = ko;
 
@@ -606,14 +792,54 @@ var ja = {
   resetAppearanceBtn: "\u30EA\u30BB\u30C3\u30C8",
   theme: "\u30C6\u30FC\u30DE",
   themeDefault: "\u6A19\u6E96",
-  themeRetro: "\u30EC\u30C8\u30ED\u30B2\u30FC\u30E0",
-  themeCartoon: "\u30AB\u30FC\u30C8\u30A5\u30FC\u30F3(\u30A2\u30E1\u30B3\u30DF)",
+  themeWin95: "Windows 95",
+  themeTerminal: "\u958B\u767A\u8005\u30BF\u30FC\u30DF\u30CA\u30EB",
+  themeSnake: "\u643A\u5E2F\u30B2\u30FC\u30E0\u6A5F\u30B9\u30CD\u30FC\u30AF (\u30B2\u30FC\u30E0)",
+  themeBreakout: "\u30A2\u30FC\u30B1\u30FC\u30C9\u30D6\u30ED\u30C3\u30AF\u5D29\u3057 (\u30B2\u30FC\u30E0)",
+  themeRunner: "\u30AA\u30D6\u30B7\u30C7\u30A3\u30A2\u30F3\u30FB\u30E9\u30F3\u30CA\u30FC (\u30B2\u30FC\u30E0)",
   themeAuto: "\u30C6\u30FC\u30DE\u306E\u65E2\u5B9A",
   animGlow: "\u30AB\u30FC\u30BD\u30EB\u306E\u30B9\u30DD\u30C3\u30C8\u30E9\u30A4\u30C8",
   animTrail: "\u30AB\u30FC\u30BD\u30EB\u306E\u8ECC\u8DE1",
   animOrbs: "\u8FFD\u3044\u304B\u3051\u308B\u7403",
-  pressAnyKey: "\u30AD\u30FC\u3092\u62BC\u3059\u304B\u30BF\u30C3\u30D7\u3057\u3066\u304F\u3060\u3055\u3044",
-  unlocked: "\u30ED\u30C3\u30AF\u89E3\u9664\u3057\u307E\u3057\u305F"
+  unlocked: "\u30ED\u30C3\u30AF\u89E3\u9664\u3057\u307E\u3057\u305F",
+  forgot: "\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u5FD8\u308C\u307E\u3057\u305F\u304B?",
+  recoverPlaceholder: "\u5FA9\u65E7\u30AD\u30FC",
+  recoverUnlock: "\u5FA9\u65E7\u30AD\u30FC\u3067\u89E3\u9664",
+  backToPassword: "\u30D1\u30B9\u30EF\u30FC\u30C9\u3067\u89E3\u9664",
+  modalReset: "\u65B0\u3057\u3044\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u8A2D\u5B9A",
+  modalRecovery: "\u5FA9\u65E7\u30AD\u30FC\u3092\u4F5C\u6210",
+  resetIntro: "\u5FA9\u65E7\u30AD\u30FC\u3067\u30ED\u30C3\u30AF\u3092\u89E3\u9664\u3057\u307E\u3057\u305F\u3002\u4ECA\u3059\u3050\u65B0\u3057\u3044\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u6C7A\u3081\u3066\u304F\u3060\u3055\u3044\u3002\u65B0\u3057\u3044\u5FA9\u65E7\u30AD\u30FC\u3082\u767A\u884C\u3055\u308C\u307E\u3059\u3002",
+  recoveryKeyTitle: "\u5FA9\u65E7\u30AD\u30FC",
+  recoveryKeyIntro: "\u3053\u306E\u30AD\u30FC\u3092\u66F8\u304D\u7559\u3081\u3066\u3001\u3053\u306E\u30B3\u30F3\u30D4\u30E5\u30FC\u30BF\u30FC\u304B\u3089\u96E2\u308C\u305F\u5B89\u5168\u306A\u5834\u6240\u306B\u4FDD\u7BA1\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u8868\u793A\u306F\u4E00\u5EA6\u304D\u308A\u3067\u3001\u5F8C\u304B\u3089\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3002\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u5FD8\u308C\u305F\u3068\u304D\u306B\u3053\u306E\u30AD\u30FC\u3067\u753B\u9762\u3092\u89E3\u9664\u3067\u304D\u307E\u3059\u3002\u3053\u306E\u30AD\u30FC\u3092\u6301\u3064\u4EBA\u306F\u8AB0\u3067\u3082\u753B\u9762\u3092\u89E3\u9664\u3067\u304D\u307E\u3059\u3002",
+  copyKey: "\u30B3\u30D4\u30FC",
+  copied: "\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F\u3002",
+  keySaved: "\u4FDD\u5B58\u3057\u307E\u3057\u305F",
+  recoveryRow: "\u5FA9\u65E7\u30AD\u30FC",
+  recoveryOn: "\u8A2D\u5B9A\u6E08\u307F\u3002\u30ED\u30C3\u30AF\u753B\u9762\u306E\u300C\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u5FD8\u308C\u307E\u3057\u305F\u304B?\u300D\u304B\u3089\u4F7F\u3044\u307E\u3059\u3002",
+  recoveryOff: "\u672A\u8A2D\u5B9A\u3002\u306A\u3044\u3068\u3001\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u5FD8\u308C\u305F\u3068\u304D\u306F data.json \u3092\u76F4\u63A5\u7DE8\u96C6\u3059\u308B\u3057\u304B\u3042\u308A\u307E\u305B\u3093\u3002",
+  makeRecovery: "\u4F5C\u6210",
+  renewRecovery: "\u65B0\u3057\u304F\u4F5C\u6210",
+  logRecovered: "\u5FA9\u65E7\u30AD\u30FC\u3067\u89E3\u9664",
+  hideScreen: "\u753B\u9762\u3092\u96A0\u3059(\u30D1\u30B9\u30EF\u30FC\u30C9\u306A\u3057)",
+  hideHint: "\u30AF\u30EA\u30C3\u30AF\u3059\u308B\u304B Esc \u3092\u62BC\u3059\u3068\u753B\u9762\u304C\u5143\u306B\u623B\u308A\u307E\u3059\u3002",
+  coverOnBlur: "\u30A6\u30A3\u30F3\u30C9\u30A6\u304C\u30D5\u30A9\u30FC\u30AB\u30B9\u3092\u5931\u3063\u305F\u3089\u96A0\u3059",
+  coverOnBlurDesc: "\u30A6\u30A3\u30F3\u30C9\u30A6\u3092\u6700\u5C0F\u5316\u3057\u305F\u3068\u304D\u3060\u3051\u3067\u306A\u304F\u3001\u5225\u306E\u30A2\u30D7\u30EA\u304C\u524D\u9762\u306B\u6765\u305F\u6642\u70B9\u3067\u30CE\u30FC\u30C8\u3092\u96A0\u3057\u307E\u3059\u3002\u7336\u4E88\u6642\u9593\u5185\u306B\u623B\u308C\u3070\u30D1\u30B9\u30EF\u30FC\u30C9\u306F\u4E0D\u8981\u3067\u3059\u3002\u8A2D\u5B9A\u30A6\u30A3\u30F3\u30C9\u30A6\u306F\u96E2\u308C\u305F\u3068\u307F\u306A\u3057\u307E\u305B\u3093\u3002",
+  lockOnSystemLock: "\u30B3\u30F3\u30D4\u30E5\u30FC\u30BF\u30FC\u306E\u30ED\u30C3\u30AF\u30FB\u30B9\u30EA\u30FC\u30D7\u6642\u306B\u30ED\u30C3\u30AF",
+  lockOnSystemLockDesc: "\u30C7\u30B9\u30AF\u30C8\u30C3\u30D7\u5C02\u7528\u3002OS \u304C\u753B\u9762\u3092\u30ED\u30C3\u30AF\u3059\u308B\u304B\u30B9\u30EA\u30FC\u30D7\u306B\u5165\u308B\u3068\u30ED\u30C3\u30AF\u3057\u307E\u3059\u3002\u3053\u306E Obsidian \u306E\u30D3\u30EB\u30C9\u304C\u5BFE\u5FDC\u3057\u3066\u3044\u306A\u3044\u5834\u5408\u306F\u4F55\u3082\u8D77\u304D\u307E\u305B\u3093\u3002",
+  deviceOnly: "\u3053\u306E\u7AEF\u672B\u3060\u3051\u306E\u8A2D\u5B9A",
+  deviceOnlyDesc: "\u81EA\u52D5\u30ED\u30C3\u30AF\u6642\u9593\u3001\u30A2\u30D7\u30EA\u3092\u96E2\u308C\u305F\u3068\u304D\u306E\u8A2D\u5B9A\u3001\u30D5\u30A9\u30FC\u30AB\u30B9\u55AA\u5931\u6642\u306E\u975E\u8868\u793A\u3001\u30B7\u30B9\u30C6\u30E0\u30ED\u30C3\u30AF\u3001\u30A6\u30A3\u30F3\u30C9\u30A6\u7E2E\u5C0F\u3092\u3053\u306E\u7AEF\u672B\u306B\u3060\u3051\u4FDD\u5B58\u3057\u3001\u540C\u671F\u3057\u307E\u305B\u3093\u3002",
+  logTitle: "\u6700\u8FD1\u306E\u8A18\u9332",
+  logDesc: "\u3053\u306E\u30DC\u30FC\u30EB\u30C8\u3092\u540C\u671F\u3057\u3066\u3044\u308B\u7AEF\u672B\u3067\u306E\u76F4\u8FD150\u4EF6\u306E\u30ED\u30C3\u30AF\u3001\u89E3\u9664\u3001\u30D1\u30B9\u30EF\u30FC\u30C9\u8AA4\u308A\u3067\u3059\u3002\u6539\u3056\u3093\u9632\u6B62\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002data.json \u3092\u7DE8\u96C6\u3067\u304D\u308B\u4EBA\u306F\u3053\u306E\u8A18\u9332\u3082\u7DE8\u96C6\u3067\u304D\u307E\u3059\u3002",
+  logEmpty: "\u307E\u3060\u8A18\u9332\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
+  logClear: "\u6D88\u53BB",
+  logLocked: "\u30ED\u30C3\u30AF",
+  logUnlocked: "\u89E3\u9664",
+  logFailed: "\u30D1\u30B9\u30EF\u30FC\u30C9\u8AA4\u308A",
+  reasonStartup: "\u8D77\u52D5\u6642",
+  reasonIdle: "\u7121\u64CD\u4F5C",
+  reasonLeft: "\u30A2\u30D7\u30EA\u3092\u96E2\u308C\u305F",
+  reasonManual: "\u624B\u52D5",
+  reasonSystem: "\u30B3\u30F3\u30D4\u30E5\u30FC\u30BF\u30FC\u306E\u30ED\u30C3\u30AF"
 };
 var ja_default = ja;
 
@@ -733,14 +959,54 @@ var zh = {
   resetAppearanceBtn: "\u91CD\u7F6E",
   theme: "\u4E3B\u9898",
   themeDefault: "\u9ED8\u8BA4",
-  themeRetro: "\u590D\u53E4\u6E38\u620F",
-  themeCartoon: "\u5361\u901A(\u7F8E\u5F0F\u6F2B\u753B)",
+  themeWin95: "Windows 95",
+  themeTerminal: "\u5F00\u53D1\u8005\u7EC8\u7AEF",
+  themeSnake: "\u638C\u673A\u8D2A\u5403\u86C7 (\u6E38\u620F)",
+  themeBreakout: "\u8857\u673A\u6253\u7816\u5757 (\u6E38\u620F)",
+  themeRunner: "\u9ED1\u66DC\u77F3\u8DD1\u9177 (\u6E38\u620F)",
   themeAuto: "\u4E3B\u9898\u9ED8\u8BA4",
   animGlow: "\u9F20\u6807\u805A\u5149\u706F",
   animTrail: "\u9F20\u6807\u8F68\u8FF9",
   animOrbs: "\u8FFD\u968F\u5149\u7403",
-  pressAnyKey: "\u6309\u4EFB\u610F\u952E\u6216\u70B9\u6309",
-  unlocked: "\u5DF2\u89E3\u9501"
+  unlocked: "\u5DF2\u89E3\u9501",
+  forgot: "\u5FD8\u8BB0\u5BC6\u7801?",
+  recoverPlaceholder: "\u6062\u590D\u5BC6\u94A5",
+  recoverUnlock: "\u7528\u6062\u590D\u5BC6\u94A5\u89E3\u9501",
+  backToPassword: "\u6539\u7528\u5BC6\u7801\u89E3\u9501",
+  modalReset: "\u8BBE\u7F6E\u65B0\u5BC6\u7801",
+  modalRecovery: "\u521B\u5EFA\u6062\u590D\u5BC6\u94A5",
+  resetIntro: "\u4F60\u5DF2\u7528\u6062\u590D\u5BC6\u94A5\u89E3\u9501\u3002\u8BF7\u73B0\u5728\u8BBE\u7F6E\u65B0\u5BC6\u7801,\u540C\u65F6\u4F1A\u751F\u6210\u65B0\u7684\u6062\u590D\u5BC6\u94A5\u3002",
+  recoveryKeyTitle: "\u4F60\u7684\u6062\u590D\u5BC6\u94A5",
+  recoveryKeyIntro: "\u8BF7\u6284\u4E0B\u8FD9\u4E2A\u5BC6\u94A5,\u4FDD\u5B58\u5728\u8FDC\u79BB\u8FD9\u53F0\u7535\u8111\u7684\u5B89\u5168\u5730\u65B9\u3002\u5B83\u53EA\u663E\u793A\u4E00\u6B21,\u4E4B\u540E\u65E0\u6CD5\u518D\u67E5\u770B\u3002\u5FD8\u8BB0\u5BC6\u7801\u65F6\u53EF\u7528\u5B83\u89E3\u9501\u5C4F\u5E55\u3002\u4EFB\u4F55\u62FF\u5230\u5B83\u7684\u4EBA\u90FD\u80FD\u89E3\u9501\u5C4F\u5E55\u3002",
+  copyKey: "\u590D\u5236",
+  copied: "\u5DF2\u590D\u5236\u3002",
+  keySaved: "\u6211\u5DF2\u4FDD\u5B58",
+  recoveryRow: "\u6062\u590D\u5BC6\u94A5",
+  recoveryOn: "\u5DF2\u8BBE\u7F6E\u3002\u5728\u9501\u5C4F\u754C\u9762\u70B9\u51FB\u201C\u5FD8\u8BB0\u5BC6\u7801?\u201D\u4F7F\u7528\u3002",
+  recoveryOff: "\u672A\u8BBE\u7F6E\u3002\u6CA1\u6709\u6062\u590D\u5BC6\u94A5\u65F6,\u5FD8\u8BB0\u5BC6\u7801\u53EA\u80FD\u76F4\u63A5\u7F16\u8F91 data.json\u3002",
+  makeRecovery: "\u521B\u5EFA",
+  renewRecovery: "\u91CD\u65B0\u521B\u5EFA",
+  logRecovered: "\u5DF2\u7528\u6062\u590D\u5BC6\u94A5\u89E3\u9501",
+  hideScreen: "\u9690\u85CF\u5C4F\u5E55(\u65E0\u9700\u5BC6\u7801)",
+  hideHint: "\u70B9\u51FB\u6216\u6309 Esc \u5373\u53EF\u91CD\u65B0\u663E\u793A\u5C4F\u5E55\u3002",
+  coverOnBlur: "\u7A97\u53E3\u5931\u53BB\u7126\u70B9\u65F6\u9690\u85CF",
+  coverOnBlurDesc: "\u4E0D\u53EA\u662F\u6700\u5C0F\u5316\u7A97\u53E3\u65F6,\u53EA\u8981\u5176\u4ED6\u5E94\u7528\u4F4D\u4E8E\u524D\u53F0\u5C31\u4F1A\u906E\u4F4F\u7B14\u8BB0\u3002\u5728\u5BBD\u9650\u65F6\u95F4\u5185\u8FD4\u56DE\u65E0\u9700\u5BC6\u7801\u3002\u8BBE\u7F6E\u7A97\u53E3\u4E0D\u7B97\u79BB\u5F00\u3002",
+  lockOnSystemLock: "\u7535\u8111\u9501\u5C4F\u6216\u7761\u7720\u65F6\u9501\u5B9A",
+  lockOnSystemLockDesc: "\u4EC5\u9650\u684C\u9762\u7AEF\u3002\u64CD\u4F5C\u7CFB\u7EDF\u9501\u5C4F\u6216\u8FDB\u5165\u7761\u7720\u65F6\u9501\u5B9A\u3002\u5982\u679C\u6B64\u7248\u672C\u7684 Obsidian \u4E0D\u63D0\u4F9B\u8BE5\u529F\u80FD,\u5219\u4E0D\u8D77\u4F5C\u7528\u3002",
+  deviceOnly: "\u6B64\u8BBE\u5907\u4F7F\u7528\u72EC\u7ACB\u8BBE\u7F6E",
+  deviceOnlyDesc: "\u81EA\u52A8\u9501\u5B9A\u65F6\u95F4\u3001\u79BB\u5F00\u5E94\u7528\u7684\u9009\u9879\u3001\u5931\u53BB\u7126\u70B9\u65F6\u9690\u85CF\u3001\u7CFB\u7EDF\u9501\u5B9A\u548C\u7F29\u5C0F\u7A97\u53E3\u4EC5\u4FDD\u5B58\u5728\u6B64\u8BBE\u5907\u4E0A,\u4E0D\u4F1A\u540C\u6B65\u3002",
+  logTitle: "\u6700\u8FD1\u8BB0\u5F55",
+  logDesc: "\u540C\u6B65\u6B64\u5E93\u7684\u8BBE\u5907\u4E0A\u6700\u8FD1 50 \u6B21\u9501\u5B9A\u3001\u89E3\u9501\u548C\u5BC6\u7801\u9519\u8BEF\u3002\u65E0\u6CD5\u9632\u7BE1\u6539:\u80FD\u7F16\u8F91 data.json \u7684\u4EBA\u4E5F\u80FD\u7F16\u8F91\u8FD9\u4EFD\u8BB0\u5F55\u3002",
+  logEmpty: "\u6682\u65E0\u8BB0\u5F55\u3002",
+  logClear: "\u6E05\u9664",
+  logLocked: "\u5DF2\u9501\u5B9A",
+  logUnlocked: "\u5DF2\u89E3\u9501",
+  logFailed: "\u5BC6\u7801\u9519\u8BEF",
+  reasonStartup: "\u542F\u52A8",
+  reasonIdle: "\u7A7A\u95F2",
+  reasonLeft: "\u79BB\u5F00\u5E94\u7528",
+  reasonManual: "\u624B\u52A8",
+  reasonSystem: "\u7535\u8111\u9501\u5B9A"
 };
 var zh_default = zh;
 
@@ -860,14 +1126,54 @@ var zhTW = {
   resetAppearanceBtn: "\u91CD\u8A2D",
   theme: "\u4E3B\u984C",
   themeDefault: "\u9810\u8A2D",
-  themeRetro: "\u5FA9\u53E4\u904A\u6232",
-  themeCartoon: "\u5361\u901A(\u7F8E\u5F0F\u6F2B\u756B)",
+  themeWin95: "Windows 95",
+  themeTerminal: "\u958B\u767C\u8005\u7D42\u7AEF\u6A5F",
+  themeSnake: "\u638C\u6A5F\u8CAA\u98DF\u86C7 (\u904A\u6232)",
+  themeBreakout: "\u8857\u6A5F\u6253\u78DA\u584A (\u904A\u6232)",
+  themeRunner: "\u9ED1\u66DC\u77F3\u8DD1\u9177 (\u904A\u6232)",
   themeAuto: "\u4E3B\u984C\u9810\u8A2D",
   animGlow: "\u6ED1\u9F20\u805A\u5149\u71C8",
   animTrail: "\u6ED1\u9F20\u8ECC\u8DE1",
   animOrbs: "\u8FFD\u96A8\u5149\u7403",
-  pressAnyKey: "\u6309\u4EFB\u610F\u9375\u6216\u9EDE\u4E00\u4E0B",
-  unlocked: "\u5DF2\u89E3\u9396"
+  unlocked: "\u5DF2\u89E3\u9396",
+  forgot: "\u5FD8\u8A18\u5BC6\u78BC?",
+  recoverPlaceholder: "\u5FA9\u539F\u91D1\u9470",
+  recoverUnlock: "\u7528\u5FA9\u539F\u91D1\u9470\u89E3\u9396",
+  backToPassword: "\u6539\u7528\u5BC6\u78BC\u89E3\u9396",
+  modalReset: "\u8A2D\u5B9A\u65B0\u5BC6\u78BC",
+  modalRecovery: "\u5EFA\u7ACB\u5FA9\u539F\u91D1\u9470",
+  resetIntro: "\u4F60\u5DF2\u7528\u5FA9\u539F\u91D1\u9470\u89E3\u9396\u3002\u8ACB\u73FE\u5728\u8A2D\u5B9A\u65B0\u5BC6\u78BC,\u540C\u6642\u6703\u7522\u751F\u65B0\u7684\u5FA9\u539F\u91D1\u9470\u3002",
+  recoveryKeyTitle: "\u4F60\u7684\u5FA9\u539F\u91D1\u9470",
+  recoveryKeyIntro: "\u8ACB\u6284\u4E0B\u9019\u500B\u91D1\u9470,\u4FDD\u5B58\u5728\u9060\u96E2\u9019\u53F0\u96FB\u8166\u7684\u5B89\u5168\u5730\u65B9\u3002\u5B83\u53EA\u986F\u793A\u4E00\u6B21,\u4E4B\u5F8C\u7121\u6CD5\u518D\u67E5\u770B\u3002\u5FD8\u8A18\u5BC6\u78BC\u6642\u53EF\u7528\u5B83\u89E3\u9396\u87A2\u5E55\u3002\u4EFB\u4F55\u62FF\u5230\u5B83\u7684\u4EBA\u90FD\u80FD\u89E3\u9396\u87A2\u5E55\u3002",
+  copyKey: "\u8907\u88FD",
+  copied: "\u5DF2\u8907\u88FD\u3002",
+  keySaved: "\u6211\u5DF2\u5132\u5B58",
+  recoveryRow: "\u5FA9\u539F\u91D1\u9470",
+  recoveryOn: "\u5DF2\u8A2D\u5B9A\u3002\u5728\u9396\u5B9A\u756B\u9762\u9EDE\u9078\u300C\u5FD8\u8A18\u5BC6\u78BC?\u300D\u4F7F\u7528\u3002",
+  recoveryOff: "\u672A\u8A2D\u5B9A\u3002\u6C92\u6709\u5FA9\u539F\u91D1\u9470\u6642,\u5FD8\u8A18\u5BC6\u78BC\u53EA\u80FD\u76F4\u63A5\u7DE8\u8F2F data.json\u3002",
+  makeRecovery: "\u5EFA\u7ACB",
+  renewRecovery: "\u91CD\u65B0\u5EFA\u7ACB",
+  logRecovered: "\u5DF2\u7528\u5FA9\u539F\u91D1\u9470\u89E3\u9396",
+  hideScreen: "\u96B1\u85CF\u87A2\u5E55(\u4E0D\u9700\u5BC6\u78BC)",
+  hideHint: "\u9EDE\u64CA\u6216\u6309 Esc \u5373\u53EF\u91CD\u65B0\u986F\u793A\u87A2\u5E55\u3002",
+  coverOnBlur: "\u8996\u7A97\u5931\u53BB\u7126\u9EDE\u6642\u96B1\u85CF",
+  coverOnBlurDesc: "\u4E0D\u53EA\u662F\u6700\u5C0F\u5316\u8996\u7A97\u6642,\u53EA\u8981\u5176\u4ED6\u61C9\u7528\u7A0B\u5F0F\u4F4D\u65BC\u524D\u666F\u5C31\u6703\u906E\u4F4F\u7B46\u8A18\u3002\u5728\u5BEC\u9650\u6642\u9593\u5167\u8FD4\u56DE\u4E0D\u9700\u5BC6\u78BC\u3002\u8A2D\u5B9A\u8996\u7A97\u4E0D\u7B97\u96E2\u958B\u3002",
+  lockOnSystemLock: "\u96FB\u8166\u9396\u5B9A\u6216\u7761\u7720\u6642\u9396\u5B9A",
+  lockOnSystemLockDesc: "\u50C5\u9650\u684C\u9762\u7248\u3002\u4F5C\u696D\u7CFB\u7D71\u9396\u5B9A\u87A2\u5E55\u6216\u9032\u5165\u7761\u7720\u6642\u9396\u5B9A\u3002\u5982\u679C\u6B64\u7248\u672C\u7684 Obsidian \u672A\u63D0\u4F9B\u8A72\u529F\u80FD,\u5247\u4E0D\u6703\u4F5C\u7528\u3002",
+  deviceOnly: "\u6B64\u88DD\u7F6E\u4F7F\u7528\u7368\u7ACB\u8A2D\u5B9A",
+  deviceOnlyDesc: "\u81EA\u52D5\u9396\u5B9A\u6642\u9593\u3001\u96E2\u958B\u61C9\u7528\u7A0B\u5F0F\u7684\u9078\u9805\u3001\u5931\u53BB\u7126\u9EDE\u6642\u96B1\u85CF\u3001\u7CFB\u7D71\u9396\u5B9A\u8207\u7E2E\u5C0F\u8996\u7A97\u53EA\u5132\u5B58\u5728\u6B64\u88DD\u7F6E\u4E0A,\u4E0D\u6703\u540C\u6B65\u3002",
+  logTitle: "\u6700\u8FD1\u7D00\u9304",
+  logDesc: "\u540C\u6B65\u6B64\u4FDD\u7BA1\u5EAB\u7684\u88DD\u7F6E\u4E0A\u6700\u8FD1 50 \u6B21\u9396\u5B9A\u3001\u89E3\u9396\u8207\u5BC6\u78BC\u932F\u8AA4\u3002\u7121\u6CD5\u9632\u7AC4\u6539:\u80FD\u7DE8\u8F2F data.json \u7684\u4EBA\u4E5F\u80FD\u7DE8\u8F2F\u9019\u4EFD\u7D00\u9304\u3002",
+  logEmpty: "\u5C1A\u7121\u7D00\u9304\u3002",
+  logClear: "\u6E05\u9664",
+  logLocked: "\u5DF2\u9396\u5B9A",
+  logUnlocked: "\u5DF2\u89E3\u9396",
+  logFailed: "\u5BC6\u78BC\u932F\u8AA4",
+  reasonStartup: "\u555F\u52D5",
+  reasonIdle: "\u9592\u7F6E",
+  reasonLeft: "\u96E2\u958B\u61C9\u7528\u7A0B\u5F0F",
+  reasonManual: "\u624B\u52D5",
+  reasonSystem: "\u96FB\u8166\u9396\u5B9A"
 };
 var zh_tw_default = zhTW;
 
@@ -987,14 +1293,54 @@ var es = {
   resetAppearanceBtn: "Restablecer",
   theme: "Tema",
   themeDefault: "Predeterminado",
-  themeRetro: "Videojuego retro",
-  themeCartoon: "Dibujos animados (c\xF3mic cl\xE1sico)",
+  themeWin95: "Windows 95",
+  themeTerminal: "Terminal de desarrollo",
+  themeSnake: "Serpiente port\xE1til (juego)",
+  themeBreakout: "Arcade rompe-bloques (juego)",
+  themeRunner: "Obsidian Runner (juego)",
   themeAuto: "Predeterminada del tema",
   animGlow: "Foco que sigue al cursor",
   animTrail: "Estela del cursor",
   animOrbs: "Esferas perseguidoras",
-  pressAnyKey: "Pulsa una tecla o toca",
-  unlocked: "Desbloqueado"
+  unlocked: "Desbloqueado",
+  forgot: "\xBFOlvidaste la contrase\xF1a?",
+  recoverPlaceholder: "Clave de recuperaci\xF3n",
+  recoverUnlock: "Desbloquear con la clave de recuperaci\xF3n",
+  backToPassword: "Usar la contrase\xF1a",
+  modalReset: "Establecer una contrase\xF1a nueva",
+  modalRecovery: "Crear una clave de recuperaci\xF3n",
+  resetIntro: "Has desbloqueado con la clave de recuperaci\xF3n. Elige ahora una contrase\xF1a nueva. Tambi\xE9n recibir\xE1s una clave de recuperaci\xF3n nueva.",
+  recoveryKeyTitle: "Tu clave de recuperaci\xF3n",
+  recoveryKeyIntro: "Anota esta clave y gu\xE1rdala en un lugar seguro, lejos de este equipo. Solo se muestra una vez y no se puede consultar despu\xE9s. Si olvidas la contrase\xF1a, desbloquea la pantalla. Cualquiera que la tenga puede desbloquear la pantalla.",
+  copyKey: "Copiar",
+  copied: "Copiada.",
+  keySaved: "Ya la guard\xE9",
+  recoveryRow: "Clave de recuperaci\xF3n",
+  recoveryOn: "Establecida. \xDAsala en \u201C\xBFOlvidaste la contrase\xF1a?\u201D de la pantalla de bloqueo.",
+  recoveryOff: "No establecida. Sin ella, una contrase\xF1a olvidada solo se arregla editando data.json.",
+  makeRecovery: "Crear",
+  renewRecovery: "Crear nueva",
+  logRecovered: "Desbloqueado con la clave de recuperaci\xF3n",
+  hideScreen: "Ocultar pantalla (sin contrase\xF1a)",
+  hideHint: "Haz clic o pulsa Esc para volver a mostrar la pantalla.",
+  coverOnBlur: "Ocultar al perder el foco la ventana",
+  coverOnBlurDesc: "Oculta las notas en cuanto otra aplicaci\xF3n pasa al frente, no solo al minimizar la ventana. Si vuelves dentro del periodo de gracia no se pide contrase\xF1a. La ventana de Ajustes no cuenta como salir.",
+  lockOnSystemLock: "Bloquear al bloquearse o suspenderse el equipo",
+  lockOnSystemLockDesc: "Solo escritorio. Bloquea cuando el sistema operativo bloquea la pantalla o entra en suspensi\xF3n. No hace nada si esta versi\xF3n de Obsidian no lo ofrece.",
+  deviceOnly: "Ajustes propios de este dispositivo",
+  deviceOnlyDesc: "El tiempo de bloqueo autom\xE1tico, las opciones al salir de la aplicaci\xF3n, ocultar al perder el foco, el bloqueo del sistema y reducir la ventana se guardan solo en este dispositivo y no se sincronizan.",
+  logTitle: "Actividad reciente",
+  logDesc: "Los \xFAltimos 50 bloqueos, desbloqueos y contrase\xF1as incorrectas en los dispositivos que sincronizan esta b\xF3veda. No es a prueba de manipulaci\xF3n: quien pueda editar data.json puede editarlo.",
+  logEmpty: "A\xFAn no hay registros.",
+  logClear: "Borrar",
+  logLocked: "Bloqueado",
+  logUnlocked: "Desbloqueado",
+  logFailed: "Contrase\xF1a incorrecta",
+  reasonStartup: "inicio",
+  reasonIdle: "inactividad",
+  reasonLeft: "sali\xF3 de la aplicaci\xF3n",
+  reasonManual: "manual",
+  reasonSystem: "equipo bloqueado"
 };
 var es_default = es;
 
@@ -1114,14 +1460,54 @@ var fr = {
   resetAppearanceBtn: "R\xE9initialiser",
   theme: "Th\xE8me",
   themeDefault: "Par d\xE9faut",
-  themeRetro: "Jeu r\xE9tro",
-  themeCartoon: "Dessin anim\xE9 (comics d'\xE9poque)",
+  themeWin95: "Windows 95",
+  themeTerminal: "Terminal d\xE9veloppeur",
+  themeSnake: "Snake console portable (jeu)",
+  themeBreakout: "Casse-briques arcade (jeu)",
+  themeRunner: "Obsidian Runner (jeu)",
   themeAuto: "D\xE9faut du th\xE8me",
   animGlow: "Projecteur qui suit le curseur",
   animTrail: "Tra\xEEn\xE9e du curseur",
   animOrbs: "Orbes poursuivants",
-  pressAnyKey: "Appuyez sur une touche ou touchez",
-  unlocked: "D\xE9verrouill\xE9"
+  unlocked: "D\xE9verrouill\xE9",
+  forgot: "Mot de passe oubli\xE9 ?",
+  recoverPlaceholder: "Cl\xE9 de r\xE9cup\xE9ration",
+  recoverUnlock: "D\xE9verrouiller avec la cl\xE9 de r\xE9cup\xE9ration",
+  backToPassword: "Utiliser le mot de passe",
+  modalReset: "D\xE9finir un nouveau mot de passe",
+  modalRecovery: "Cr\xE9er une cl\xE9 de r\xE9cup\xE9ration",
+  resetIntro: "Vous avez d\xE9verrouill\xE9 avec la cl\xE9 de r\xE9cup\xE9ration. Choisissez maintenant un nouveau mot de passe. Vous recevrez aussi une nouvelle cl\xE9 de r\xE9cup\xE9ration.",
+  recoveryKeyTitle: "Votre cl\xE9 de r\xE9cup\xE9ration",
+  recoveryKeyIntro: "Notez cette cl\xE9 et gardez-la en lieu s\xFBr, loin de cet ordinateur. Elle n\u2019est affich\xE9e qu\u2019une fois et ne pourra plus \xEAtre consult\xE9e. Si vous oubliez le mot de passe, elle d\xE9verrouille l\u2019\xE9cran. Quiconque la poss\xE8de peut d\xE9verrouiller l\u2019\xE9cran.",
+  copyKey: "Copier",
+  copied: "Copi\xE9e.",
+  keySaved: "Je l\u2019ai enregistr\xE9e",
+  recoveryRow: "Cl\xE9 de r\xE9cup\xE9ration",
+  recoveryOn: "D\xE9finie. Utilisez \xAB Mot de passe oubli\xE9 ? \xBB sur l\u2019\xE9cran de verrouillage.",
+  recoveryOff: "Non d\xE9finie. Sans elle, un mot de passe oubli\xE9 ne se corrige qu\u2019en modifiant data.json.",
+  makeRecovery: "Cr\xE9er",
+  renewRecovery: "En cr\xE9er une nouvelle",
+  logRecovered: "D\xE9verrouill\xE9 avec la cl\xE9 de r\xE9cup\xE9ration",
+  hideScreen: "Masquer l\u2019\xE9cran (sans mot de passe)",
+  hideHint: "Cliquez ou appuyez sur \xC9chap pour r\xE9afficher l\u2019\xE9cran.",
+  coverOnBlur: "Masquer quand la fen\xEAtre perd le focus",
+  coverOnBlurDesc: "Masque les notes d\xE8s qu\u2019une autre application passe au premier plan, pas seulement quand la fen\xEAtre est r\xE9duite. Revenir dans le d\xE9lai de gr\xE2ce ne demande pas de mot de passe. La fen\xEAtre des r\xE9glages ne compte pas comme une sortie.",
+  lockOnSystemLock: "Verrouiller quand l\u2019ordinateur se verrouille ou se met en veille",
+  lockOnSystemLockDesc: "Bureau uniquement. Verrouille quand le syst\xE8me verrouille l\u2019\xE9cran ou passe en veille. Sans effet si cette version d\u2019Obsidian ne le propose pas.",
+  deviceOnly: "R\xE9glages propres \xE0 cet appareil",
+  deviceOnlyDesc: "Le d\xE9lai de verrouillage automatique, les options de sortie de l\u2019application, le masquage \xE0 la perte de focus, le verrouillage syst\xE8me et la r\xE9duction de la fen\xEAtre restent sur cet appareil et ne sont pas synchronis\xE9s.",
+  logTitle: "Activit\xE9 r\xE9cente",
+  logDesc: "Les 50 derniers verrouillages, d\xE9verrouillages et mots de passe erron\xE9s sur les appareils qui synchronisent ce coffre. Non infalsifiable : quiconque peut modifier data.json peut le modifier.",
+  logEmpty: "Rien d\u2019enregistr\xE9 pour l\u2019instant.",
+  logClear: "Effacer",
+  logLocked: "Verrouill\xE9",
+  logUnlocked: "D\xE9verrouill\xE9",
+  logFailed: "Mot de passe erron\xE9",
+  reasonStartup: "d\xE9marrage",
+  reasonIdle: "inactivit\xE9",
+  reasonLeft: "sortie de l\u2019application",
+  reasonManual: "manuel",
+  reasonSystem: "ordinateur verrouill\xE9"
 };
 var fr_default = fr;
 
@@ -1241,14 +1627,54 @@ var de = {
   resetAppearanceBtn: "Zur\xFCcksetzen",
   theme: "Design",
   themeDefault: "Standard",
-  themeRetro: "Retro-Spiel",
-  themeCartoon: "Cartoon (Comic-Stil)",
+  themeWin95: "Windows 95",
+  themeTerminal: "Entwickler-Terminal",
+  themeSnake: "Handheld-Snake (Spiel)",
+  themeBreakout: "Arcade-Breakout (Spiel)",
+  themeRunner: "Obsidian-Runner (Spiel)",
   themeAuto: "Theme-Standard",
   animGlow: "Cursor-Scheinwerfer",
   animTrail: "Cursor-Spur",
   animOrbs: "Folgende Kugeln",
-  pressAnyKey: "Taste dr\xFCcken oder tippen",
-  unlocked: "Entsperrt"
+  unlocked: "Entsperrt",
+  forgot: "Passwort vergessen?",
+  recoverPlaceholder: "Wiederherstellungsschl\xFCssel",
+  recoverUnlock: "Mit Wiederherstellungsschl\xFCssel entsperren",
+  backToPassword: "Stattdessen Passwort verwenden",
+  modalReset: "Neues Passwort festlegen",
+  modalRecovery: "Wiederherstellungsschl\xFCssel erstellen",
+  resetIntro: "Du hast mit dem Wiederherstellungsschl\xFCssel entsperrt. Lege jetzt ein neues Passwort fest. Du erh\xE4ltst auch einen neuen Wiederherstellungsschl\xFCssel.",
+  recoveryKeyTitle: "Dein Wiederherstellungsschl\xFCssel",
+  recoveryKeyIntro: "Schreibe diesen Schl\xFCssel auf und bewahre ihn sicher auf, weit weg von diesem Computer. Er wird nur einmal angezeigt und l\xE4sst sich sp\xE4ter nicht mehr abrufen. Wenn du das Passwort vergisst, entsperrt er den Bildschirm. Jeder, der ihn hat, kann den Bildschirm entsperren.",
+  copyKey: "Kopieren",
+  copied: "Kopiert.",
+  keySaved: "Ich habe ihn gespeichert",
+  recoveryRow: "Wiederherstellungsschl\xFCssel",
+  recoveryOn: "Festgelegt. Verwende \u201EPasswort vergessen?\u201C auf dem Sperrbildschirm.",
+  recoveryOff: "Nicht festgelegt. Ohne ihn l\xE4sst sich ein vergessenes Passwort nur durch Bearbeiten von data.json beheben.",
+  makeRecovery: "Erstellen",
+  renewRecovery: "Neu erstellen",
+  logRecovered: "Mit Wiederherstellungsschl\xFCssel entsperrt",
+  hideScreen: "Bildschirm verbergen (ohne Passwort)",
+  hideHint: "Klicken oder Esc dr\xFCcken, um den Bildschirm wieder anzuzeigen.",
+  coverOnBlur: "Verbergen, wenn das Fenster den Fokus verliert",
+  coverOnBlurDesc: "Verdeckt die Notizen, sobald eine andere App im Vordergrund ist, nicht nur beim Minimieren. Kehrst du innerhalb der Karenzzeit zur\xFCck, wird kein Passwort verlangt. Das Einstellungsfenster z\xE4hlt nicht als Verlassen.",
+  lockOnSystemLock: "Sperren, wenn der Computer gesperrt wird oder in den Ruhezustand geht",
+  lockOnSystemLockDesc: "Nur Desktop. Sperrt, wenn das Betriebssystem den Bildschirm sperrt oder in den Ruhezustand wechselt. Ohne Wirkung, wenn diese Obsidian-Version das nicht bereitstellt.",
+  deviceOnly: "Eigene Einstellungen f\xFCr dieses Ger\xE4t",
+  deviceOnlyDesc: "Zeit f\xFCr die automatische Sperre, Optionen beim Verlassen der App, Verbergen bei Fokusverlust, Systemsperre und Fensterverkleinerung bleiben nur auf diesem Ger\xE4t und werden nicht synchronisiert.",
+  logTitle: "Letzte Aktivit\xE4t",
+  logDesc: "Die letzten 50 Sperrungen, Entsperrungen und falschen Passw\xF6rter auf Ger\xE4ten, die diesen Tresor synchronisieren. Nicht manipulationssicher: Wer data.json bearbeiten kann, kann auch dieses Protokoll bearbeiten.",
+  logEmpty: "Noch nichts aufgezeichnet.",
+  logClear: "Leeren",
+  logLocked: "Gesperrt",
+  logUnlocked: "Entsperrt",
+  logFailed: "Falsches Passwort",
+  reasonStartup: "Start",
+  reasonIdle: "Inaktivit\xE4t",
+  reasonLeft: "App verlassen",
+  reasonManual: "manuell",
+  reasonSystem: "Computer gesperrt"
 };
 var de_default = de;
 
@@ -1368,14 +1794,54 @@ var pt = {
   resetAppearanceBtn: "Redefinir",
   theme: "Tema",
   themeDefault: "Padr\xE3o",
-  themeRetro: "Jogo retr\xF4",
-  themeCartoon: "Desenho animado (quadrinhos cl\xE1ssicos)",
+  themeWin95: "Windows 95",
+  themeTerminal: "Terminal do desenvolvedor",
+  themeSnake: "Snake port\xE1til (jogo)",
+  themeBreakout: "Quebra-blocos arcade (jogo)",
+  themeRunner: "Obsidian Runner (jogo)",
   themeAuto: "Padr\xE3o do tema",
   animGlow: "Holofote do cursor",
   animTrail: "Rastro do cursor",
   animOrbs: "Esferas perseguidoras",
-  pressAnyKey: "Pressione uma tecla ou toque",
-  unlocked: "Desbloqueado"
+  unlocked: "Desbloqueado",
+  forgot: "Esqueceu a senha?",
+  recoverPlaceholder: "Chave de recupera\xE7\xE3o",
+  recoverUnlock: "Desbloquear com a chave de recupera\xE7\xE3o",
+  backToPassword: "Usar a senha",
+  modalReset: "Definir uma nova senha",
+  modalRecovery: "Criar uma chave de recupera\xE7\xE3o",
+  resetIntro: "Voc\xEA desbloqueou com a chave de recupera\xE7\xE3o. Escolha agora uma nova senha. Voc\xEA tamb\xE9m receber\xE1 uma nova chave de recupera\xE7\xE3o.",
+  recoveryKeyTitle: "Sua chave de recupera\xE7\xE3o",
+  recoveryKeyIntro: "Anote esta chave e guarde-a em um lugar seguro, longe deste computador. Ela \xE9 mostrada s\xF3 uma vez e n\xE3o pode ser consultada depois. Se voc\xEA esquecer a senha, ela desbloqueia a tela. Qualquer pessoa que a tenha pode desbloquear a tela.",
+  copyKey: "Copiar",
+  copied: "Copiada.",
+  keySaved: "J\xE1 guardei",
+  recoveryRow: "Chave de recupera\xE7\xE3o",
+  recoveryOn: "Definida. Use \u201CEsqueceu a senha?\u201D na tela de bloqueio.",
+  recoveryOff: "N\xE3o definida. Sem ela, uma senha esquecida s\xF3 se resolve editando o data.json.",
+  makeRecovery: "Criar",
+  renewRecovery: "Criar nova",
+  logRecovered: "Desbloqueado com a chave de recupera\xE7\xE3o",
+  hideScreen: "Ocultar a tela (sem senha)",
+  hideHint: "Clique ou pressione Esc para mostrar a tela de novo.",
+  coverOnBlur: "Ocultar quando a janela perder o foco",
+  coverOnBlurDesc: "Oculta as notas assim que outro aplicativo vem para a frente, n\xE3o s\xF3 ao minimizar a janela. Voltar dentro do per\xEDodo de toler\xE2ncia n\xE3o pede senha. A janela de Configura\xE7\xF5es n\xE3o conta como sair.",
+  lockOnSystemLock: "Bloquear quando o computador bloquear ou suspender",
+  lockOnSystemLockDesc: "Somente desktop. Bloqueia quando o sistema operacional bloqueia a tela ou entra em suspens\xE3o. N\xE3o faz nada se esta vers\xE3o do Obsidian n\xE3o oferecer o recurso.",
+  deviceOnly: "Configura\xE7\xF5es pr\xF3prias deste dispositivo",
+  deviceOnlyDesc: "O tempo de bloqueio autom\xE1tico, as op\xE7\xF5es ao sair do app, ocultar ao perder o foco, o bloqueio do sistema e a redu\xE7\xE3o da janela ficam s\xF3 neste dispositivo e n\xE3o s\xE3o sincronizados.",
+  logTitle: "Atividade recente",
+  logDesc: "Os \xFAltimos 50 bloqueios, desbloqueios e senhas erradas nos dispositivos que sincronizam este cofre. N\xE3o \xE9 \xE0 prova de adultera\xE7\xE3o: quem puder editar o data.json pode edit\xE1-lo.",
+  logEmpty: "Nada registrado ainda.",
+  logClear: "Limpar",
+  logLocked: "Bloqueado",
+  logUnlocked: "Desbloqueado",
+  logFailed: "Senha incorreta",
+  reasonStartup: "in\xEDcio",
+  reasonIdle: "inatividade",
+  reasonLeft: "saiu do app",
+  reasonManual: "manual",
+  reasonSystem: "computador bloqueado"
 };
 var pt_default = pt;
 
@@ -1495,14 +1961,54 @@ var ru = {
   resetAppearanceBtn: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C",
   theme: "\u0422\u0435\u043C\u0430",
   themeDefault: "\u041F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E",
-  themeRetro: "\u0420\u0435\u0442\u0440\u043E-\u0438\u0433\u0440\u0430",
-  themeCartoon: "\u041C\u0443\u043B\u044C\u0442\u0444\u0438\u043B\u044C\u043C (\u043A\u043B\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u043A\u043E\u043C\u0438\u043A\u0441\u044B)",
+  themeWin95: "Windows 95",
+  themeTerminal: "\u0422\u0435\u0440\u043C\u0438\u043D\u0430\u043B \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430",
+  themeSnake: "\u0417\u043C\u0435\u0439\u043A\u0430 \u043D\u0430 \u043A\u043E\u043D\u0441\u043E\u043B\u0438 (\u0438\u0433\u0440\u0430)",
+  themeBreakout: "\u0410\u0440\u043A\u0430\u0434\u0430: \u0440\u0430\u0437\u0431\u0435\u0439 \u043A\u0438\u0440\u043F\u0438\u0447\u0438 (\u0438\u0433\u0440\u0430)",
+  themeRunner: "Obsidian Runner (\u0438\u0433\u0440\u0430)",
   themeAuto: "\u0418\u0437 \u0442\u0435\u043C\u044B",
   animGlow: "\u041F\u0440\u043E\u0436\u0435\u043A\u0442\u043E\u0440 \u0437\u0430 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C",
   animTrail: "\u0421\u043B\u0435\u0434 \u043A\u0443\u0440\u0441\u043E\u0440\u0430",
   animOrbs: "\u041F\u0440\u0435\u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0435 \u0448\u0430\u0440\u044B",
-  pressAnyKey: "\u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0443 \u0438\u043B\u0438 \u043A\u043E\u0441\u043D\u0438\u0442\u0435\u0441\u044C",
-  unlocked: "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043E"
+  unlocked: "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043E",
+  forgot: "\u0417\u0430\u0431\u044B\u043B\u0438 \u043F\u0430\u0440\u043E\u043B\u044C?",
+  recoverPlaceholder: "\u041A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
+  recoverUnlock: "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043A\u043B\u044E\u0447\u043E\u043C \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
+  backToPassword: "\u0412\u0432\u0435\u0441\u0442\u0438 \u043F\u0430\u0440\u043E\u043B\u044C",
+  modalReset: "\u0417\u0430\u0434\u0430\u0442\u044C \u043D\u043E\u0432\u044B\u0439 \u043F\u0430\u0440\u043E\u043B\u044C",
+  modalRecovery: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
+  resetIntro: "\u0412\u044B \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043B\u0438 \u044D\u043A\u0440\u0430\u043D \u043A\u043B\u044E\u0447\u043E\u043C \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F. \u0417\u0430\u0434\u0430\u0439\u0442\u0435 \u043D\u043E\u0432\u044B\u0439 \u043F\u0430\u0440\u043E\u043B\u044C \u0441\u0435\u0439\u0447\u0430\u0441. \u0412\u044B \u0442\u0430\u043A\u0436\u0435 \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u0435 \u043D\u043E\u0432\u044B\u0439 \u043A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F.",
+  recoveryKeyTitle: "\u0412\u0430\u0448 \u043A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
+  recoveryKeyIntro: "\u0417\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u044D\u0442\u043E\u0442 \u043A\u043B\u044E\u0447 \u0438 \u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0432 \u043D\u0430\u0434\u0451\u0436\u043D\u043E\u043C \u043C\u0435\u0441\u0442\u0435, \u043F\u043E\u0434\u0430\u043B\u044C\u0448\u0435 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0430. \u041E\u043D \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u043F\u043E\u0442\u043E\u043C \u0435\u0433\u043E \u043D\u0435\u043B\u044C\u0437\u044F \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C. \u0415\u0441\u043B\u0438 \u0432\u044B \u0437\u0430\u0431\u0443\u0434\u0435\u0442\u0435 \u043F\u0430\u0440\u043E\u043B\u044C, \u043A\u043B\u044E\u0447 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 \u044D\u043A\u0440\u0430\u043D. \u041B\u044E\u0431\u043E\u0439, \u0443 \u043A\u043E\u0433\u043E \u0435\u0441\u0442\u044C \u043A\u043B\u044E\u0447, \u043C\u043E\u0436\u0435\u0442 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u044D\u043A\u0440\u0430\u043D.",
+  copyKey: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+  copied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E.",
+  keySaved: "\u042F \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u043B",
+  recoveryRow: "\u041A\u043B\u044E\u0447 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
+  recoveryOn: "\u0417\u0430\u0434\u0430\u043D. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \xAB\u0417\u0430\u0431\u044B\u043B\u0438 \u043F\u0430\u0440\u043E\u043B\u044C?\xBB \u043D\u0430 \u044D\u043A\u0440\u0430\u043D\u0435 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0438.",
+  recoveryOff: "\u041D\u0435 \u0437\u0430\u0434\u0430\u043D. \u0411\u0435\u0437 \u043D\u0435\u0433\u043E \u0437\u0430\u0431\u044B\u0442\u044B\u0439 \u043F\u0430\u0440\u043E\u043B\u044C \u043C\u043E\u0436\u043D\u043E \u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u0430\u0432\u043A\u043E\u0439 data.json.",
+  makeRecovery: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C",
+  renewRecovery: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043D\u043E\u0432\u044B\u0439",
+  logRecovered: "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043E \u043A\u043B\u044E\u0447\u043E\u043C \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F",
+  hideScreen: "\u0421\u043A\u0440\u044B\u0442\u044C \u044D\u043A\u0440\u0430\u043D (\u0431\u0435\u0437 \u043F\u0430\u0440\u043E\u043B\u044F)",
+  hideHint: "\u0429\u0451\u043B\u043A\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043D\u0430\u0436\u043C\u0438\u0442\u0435 Esc, \u0447\u0442\u043E\u0431\u044B \u0441\u043D\u043E\u0432\u0430 \u043F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u044D\u043A\u0440\u0430\u043D.",
+  coverOnBlur: "\u0421\u043A\u0440\u044B\u0432\u0430\u0442\u044C, \u043A\u043E\u0433\u0434\u0430 \u043E\u043A\u043D\u043E \u0442\u0435\u0440\u044F\u0435\u0442 \u0444\u043E\u043A\u0443\u0441",
+  coverOnBlurDesc: "\u0417\u0430\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0437\u0430\u043C\u0435\u0442\u043A\u0438, \u043A\u0430\u043A \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E\u0432\u0435\u0440\u0445 \u0432\u044B\u0445\u043E\u0434\u0438\u0442 \u0434\u0440\u0443\u0433\u043E\u0435 \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435, \u0430 \u043D\u0435 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u0438 \u0441\u0432\u043E\u0440\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u0438 \u043E\u043A\u043D\u0430. \u0412\u043E\u0437\u0432\u0440\u0430\u0442 \u0432 \u043F\u0440\u0435\u0434\u0435\u043B\u0430\u0445 \u043B\u044C\u0433\u043E\u0442\u043D\u043E\u0433\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0438 \u043D\u0435 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043F\u0430\u0440\u043E\u043B\u044F. \u041E\u043A\u043D\u043E \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043A \u043D\u0435 \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F \u0432\u044B\u0445\u043E\u0434\u043E\u043C.",
+  lockOnSystemLock: "\u0411\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0438 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0435 \u0438\u043B\u0438 \u0441\u043D\u0435 \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0430",
+  lockOnSystemLockDesc: "\u0422\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0430. \u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442, \u043A\u043E\u0433\u0434\u0430 \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u043E\u043D\u043D\u0430\u044F \u0441\u0438\u0441\u0442\u0435\u043C\u0430 \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 \u044D\u043A\u0440\u0430\u043D \u0438\u043B\u0438 \u0437\u0430\u0441\u044B\u043F\u0430\u0435\u0442. \u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0434\u0435\u043B\u0430\u0435\u0442, \u0435\u0441\u043B\u0438 \u044D\u0442\u0430 \u0441\u0431\u043E\u0440\u043A\u0430 Obsidian \u043D\u0435 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442 \u0442\u0430\u043A\u0443\u044E \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C.",
+  deviceOnly: "\u041E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430",
+  deviceOnlyDesc: "\u0412\u0440\u0435\u043C\u044F \u0430\u0432\u0442\u043E\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0438, \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u043F\u0440\u0438 \u0432\u044B\u0445\u043E\u0434\u0435 \u0438\u0437 \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F, \u0441\u043A\u0440\u044B\u0442\u0438\u0435 \u043F\u0440\u0438 \u043F\u043E\u0442\u0435\u0440\u0435 \u0444\u043E\u043A\u0443\u0441\u0430, \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u0430\u044F \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430 \u0438 \u0443\u043C\u0435\u043D\u044C\u0448\u0435\u043D\u0438\u0435 \u043E\u043A\u043D\u0430 \u0445\u0440\u0430\u043D\u044F\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0430 \u044D\u0442\u043E\u043C \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0435 \u0438 \u043D\u0435 \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u0443\u044E\u0442\u0441\u044F.",
+  logTitle: "\u041D\u0435\u0434\u0430\u0432\u043D\u044F\u044F \u0430\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C",
+  logDesc: "\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0435 50 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043E\u043A, \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043E\u043A \u0438 \u043D\u0435\u0432\u0435\u0440\u043D\u044B\u0445 \u043F\u0430\u0440\u043E\u043B\u0435\u0439 \u043D\u0430 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430\u0445, \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u0443\u044E\u0449\u0438\u0445 \u044D\u0442\u043E \u0445\u0440\u0430\u043D\u0438\u043B\u0438\u0449\u0435. \u0417\u0430\u0449\u0438\u0442\u044B \u043E\u0442 \u043F\u043E\u0434\u0434\u0435\u043B\u043A\u0438 \u043D\u0435\u0442: \u043A\u0442\u043E \u043C\u043E\u0436\u0435\u0442 \u043F\u0440\u0430\u0432\u0438\u0442\u044C data.json, \u043C\u043E\u0436\u0435\u0442 \u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0438 \u044D\u0442\u043E\u0442 \u0436\u0443\u0440\u043D\u0430\u043B.",
+  logEmpty: "\u041F\u043E\u043A\u0430 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u043E.",
+  logClear: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+  logLocked: "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043E",
+  logUnlocked: "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043E",
+  logFailed: "\u041D\u0435\u0432\u0435\u0440\u043D\u044B\u0439 \u043F\u0430\u0440\u043E\u043B\u044C",
+  reasonStartup: "\u0437\u0430\u043F\u0443\u0441\u043A",
+  reasonIdle: "\u0431\u0435\u0437\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435",
+  reasonLeft: "\u0432\u044B\u0445\u043E\u0434 \u0438\u0437 \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F",
+  reasonManual: "\u0432\u0440\u0443\u0447\u043D\u0443\u044E",
+  reasonSystem: "\u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D"
 };
 var ru_default = ru;
 
@@ -1539,6 +2045,57 @@ function getStrings(tag = detectTag()) {
 }
 function fmt(template, n) {
   return template.replace("{n}", String(n));
+}
+
+// src/text.ts
+function charCount(text) {
+  return Array.from(text).length;
+}
+function clipChars(text, max) {
+  const chars = Array.from(text);
+  return chars.length <= max ? text : chars.slice(0, max).join("");
+}
+
+// src/themes.ts
+var THEMES = ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "obsidian-runner"];
+var GAME_IDS = ["snake", "breakout", "runner"];
+var GAME_OF = {
+  "gameboy-snake": "snake",
+  "neon-breakout": "breakout",
+  "obsidian-runner": "runner"
+};
+function gameOf(theme) {
+  return GAME_OF[theme] ?? null;
+}
+var THEME_TEXT = {
+  default: {},
+  win95: { unlock: "UNLOCK", placeholder: "none" },
+  terminal: { unlock: "[UNLOCK]", title: "[ LOCKED ]", unlocked: "[ UNLOCKED ]", placeholder: "none" },
+  "gameboy-snake": { unlock: "PLAY & UNLOCK" },
+  "neon-breakout": { unlock: "UNLOCK", placeholder: "none" },
+  "obsidian-runner": { unlock: "UNLOCK", placeholder: "english" }
+};
+function parseTheme(raw) {
+  return THEMES.includes(raw) ? raw : "default";
+}
+var MAX_SCORE = 999999;
+function emptyHighScores() {
+  return { snake: 0, breakout: 0, runner: 0 };
+}
+function parseHighScores(raw) {
+  const out = emptyHighScores();
+  if (typeof raw !== "object" || raw === null) return out;
+  const r = raw;
+  for (const id of GAME_IDS) {
+    const v = r[id];
+    if (typeof v === "number" && Number.isFinite(v)) out[id] = Math.min(MAX_SCORE, Math.max(0, Math.floor(v)));
+  }
+  return out;
+}
+function mergeHighScores(a, b) {
+  const out = emptyHighScores();
+  for (const id of GAME_IDS) out[id] = Math.max(a[id], b[id]);
+  return out;
 }
 
 // src/windowSize.ts
@@ -1613,7 +2170,7 @@ function shrinkWindow(size, existing) {
       x: Math.round(cur.x + cur.width / 2 - size.width / 2),
       y: Math.round(cur.y + cur.height / 2 - size.height / 2)
     };
-    w.setBounds(fitToDisplay(target), true);
+    w.setBounds(fitToDisplay(target), false);
     return saved;
   } catch {
     return existing;
@@ -1623,31 +2180,41 @@ function restoreWindow(saved) {
   const w = electronWindow();
   if (!w) return;
   try {
-    w.setBounds(fitToDisplay(saved.bounds), true);
+    w.setBounds(fitToDisplay(saved.bounds), false);
     if (saved.maximized) w.maximize();
   } catch {
   }
+}
+function watchSystemLock(onLock) {
+  const pm = remote()?.powerMonitor;
+  if (!pm || typeof pm.on !== "function" || typeof pm.removeListener !== "function") return () => {
+  };
+  const events = ["lock-screen", "suspend"];
+  try {
+    for (const e of events) pm.on(e, onLock);
+  } catch {
+    return () => {
+    };
+  }
+  return () => {
+    try {
+      for (const e of events) pm.removeListener(e, onLock);
+    } catch {
+    }
+  };
 }
 
 // src/lockscreen.ts
 var import_obsidian2 = require("obsidian");
 
 // src/pointerfx.ts
-var BAYER = [
-  [0, 8, 2, 10],
-  [12, 4, 14, 6],
-  [3, 11, 1, 9],
-  [15, 7, 13, 5]
-];
-var PIXEL = 6;
 var MAX_PARTICLES = 90;
 var rnd = (a, b) => a + Math.random() * (b - a);
 var PointerFx = class {
-  constructor(doc, win, host, kind, theme, colors) {
+  constructor(doc, win, host, kind, colors) {
     this.doc = doc;
     this.win = win;
     this.kind = kind;
-    this.theme = theme;
     this.colors = colors;
     this.particles = [];
     this.orbs = [];
@@ -1739,10 +2306,9 @@ var PointerFx = class {
     this.w = this.win.innerWidth;
     this.h = this.win.innerHeight;
     const dpr = Math.min(2, this.win.devicePixelRatio || 1);
-    this.scale = this.theme === "retro" ? 1 / PIXEL : dpr;
+    this.scale = dpr;
     this.canvas.width = Math.max(1, Math.ceil(this.w * this.scale));
     this.canvas.height = Math.max(1, Math.ceil(this.h * this.scale));
-    this.canvas.style.imageRendering = this.theme === "retro" ? "pixelated" : "auto";
     this.draw(performance.now() / 1e3);
   }
   update(dt, time) {
@@ -1757,8 +2323,7 @@ var PointerFx = class {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.rot += p.vr * dt;
-        if (this.theme === "retro") p.vy += 300 * dt;
-        else p.vx *= 1 - 0.8 * dt;
+        p.vx *= 1 - 0.8 * dt;
       }
       for (let i = this.particles.length - 1; i >= 0; i--) if (this.particles[i].age >= this.particles[i].life) this.particles.splice(i, 1);
     }
@@ -1786,7 +2351,7 @@ var PointerFx = class {
         y: this.h / 2,
         vx: 0,
         vy: 0,
-        r: this.theme === "retro" ? rnd(2, 4.5) * PIXEL : rnd(16, 36),
+        r: rnd(16, 36),
         ci: i % this.colors.length,
         k: 0.012 + i * 0.011,
         ang: i / n * Math.PI * 2,
@@ -1799,20 +2364,19 @@ var PointerFx = class {
     const dx = x - this.last.x;
     const dy = y - this.last.y;
     const dist = Math.hypot(dx, dy);
-    const spacing = this.theme === "cartoon" ? 26 : this.theme === "retro" ? 14 : 9;
+    const spacing = 9;
     const n = Math.min(6, Math.floor(dist / spacing));
     for (let i = 1; i <= n; i++) {
       if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
-      const f = i / n;
-      const cartoon = this.theme === "cartoon";
+      const f2 = i / n;
       this.particles.push({
-        x: this.last.x + dx * f,
-        y: this.last.y + dy * f,
+        x: this.last.x + dx * f2,
+        y: this.last.y + dy * f2,
         vx: rnd(-18, 18),
-        vy: this.theme === "retro" ? rnd(-30, 10) : rnd(-18, 18),
+        vy: rnd(-18, 18),
         age: 0,
-        life: cartoon ? rnd(0.7, 1) : this.theme === "retro" ? rnd(0.7, 1.1) : rnd(0.8, 1.3),
-        size: cartoon ? rnd(10, 19) : this.theme === "retro" ? 1 + Math.floor(Math.random() * 2) : rnd(5, 13),
+        life: rnd(0.8, 1.3),
+        size: rnd(5, 13),
         rot: rnd(0, Math.PI * 2),
         vr: rnd(-3, 3),
         ci: Math.floor(Math.random() * this.colors.length)
@@ -1825,14 +2389,8 @@ var PointerFx = class {
     if (!ctx) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    const k = this.theme === "retro" ? 1 : this.scale;
-    ctx.setTransform(k, 0, 0, k, 0, 0);
-    if (this.theme === "retro") this.drawRetro(ctx, time);
-    else if (this.theme === "cartoon") this.drawCartoon(ctx, time);
-    else this.drawDefault(ctx, time);
-  }
-  color(i) {
-    return this.colors[i % this.colors.length];
+    ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
+    this.drawDefault(ctx, time);
   }
   /** Same colour at a given alpha. Gradients must fade to this, not to "transparent" (transparent black),
    *  or the browser interpolates through grey and leaves a dark rim. */
@@ -1854,12 +2412,12 @@ var PointerFx = class {
       ctx.fill();
     } else if (this.kind === "trail") {
       for (const p of this.particles) {
-        const f = 1 - p.age / p.life;
-        const r = p.size * (0.4 + f * 0.8);
+        const f2 = 1 - p.age / p.life;
+        const r = p.size * (0.4 + f2 * 0.8);
         const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
         g.addColorStop(0, this.rgba(p.ci, 1));
         g.addColorStop(1, this.rgba(p.ci, 0));
-        ctx.globalAlpha = 0.85 * f;
+        ctx.globalAlpha = 0.85 * f2;
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -1880,174 +2438,1213 @@ var PointerFx = class {
     }
     ctx.globalAlpha = 1;
   }
-  /** Pixel style: everything on a coarse grid (the canvas itself is low-res and scaled up crisply). */
-  drawRetro(ctx, time) {
-    const cell = (x, y, c) => {
-      ctx.fillStyle = c;
-      ctx.fillRect(Math.floor(x / PIXEL), Math.floor(y / PIXEL), 1, 1);
-    };
-    if (this.kind === "glow") {
-      const R = Math.min(this.w, this.h) * 0.3;
-      const cx = Math.floor(this.pos.x / PIXEL);
-      const cy = Math.floor(this.pos.y / PIXEL);
-      const rc = Math.ceil(R / PIXEL);
-      const strength = this.glowAlpha;
-      for (let y = -rc; y <= rc; y++) {
-        for (let x = -rc; x <= rc; x++) {
-          const d = Math.hypot(x, y) / rc;
-          if (d >= 1) continue;
-          const level = (1 - d) * strength;
-          if (level > BAYER[cy + y & 3][cx + x & 3] / 16 + 0.04) {
-            ctx.fillStyle = d < 0.45 ? this.color(1) : this.color(0);
-            ctx.fillRect(cx + x, cy + y, 1, 1);
-          }
+};
+
+// src/pixelicons.ts
+var W = 14;
+var pad = (inner, margin) => ".".repeat(margin) + inner + ".".repeat(W - margin - inner.length);
+var body = (inner) => {
+  if (inner.length !== 10) throw new Error(`pixel lock body row must be 10 wide, got ${inner.length}`);
+  return pad(`o${inner}o`, 1);
+};
+var f = "f".repeat(10);
+var SHACKLE_TOP = [pad("oooooo", 4), pad(`o${"s".repeat(6)}o`, 3)];
+var BODY = [
+  pad("o".repeat(12), 1),
+  body(f),
+  body(f),
+  body("fffkkkkfff"),
+  // keyhole: round top ...
+  body("ffffkkffff"),
+  // ... and a stem
+  body("ffffkkffff"),
+  body(f),
+  body("s".repeat(10)),
+  pad("o".repeat(12), 1)
+];
+var LOCK_CLOSED = [
+  ...SHACKLE_TOP,
+  ...Array.from({ length: 4 }, () => pad(`os${".".repeat(6)}so`, 2)),
+  ...BODY
+];
+var LOCK_OPEN = [
+  ...SHACKLE_TOP,
+  pad(`os${".".repeat(6)}so`, 2),
+  pad(`os${".".repeat(6)}so`, 2),
+  pad(`os${".".repeat(6)}..`, 2),
+  pad(`os${".".repeat(6)}..`, 2),
+  ...BODY
+];
+function pixelLock(doc, open, palette2) {
+  const rows = open ? LOCK_OPEN : LOCK_CLOSED;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = doc.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${rows.length}`);
+  svg.setAttribute("shape-rendering", "crispEdges");
+  svg.setAttribute("aria-hidden", "true");
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const c = row[x];
+      if (c === ".") continue;
+      const r = doc.createElementNS(NS, "rect");
+      r.setAttribute("x", String(x));
+      r.setAttribute("y", String(y));
+      r.setAttribute("width", "1");
+      r.setAttribute("height", "1");
+      r.setAttribute("fill", palette2[c]);
+      svg.append(r);
+    }
+  });
+  return svg;
+}
+
+// src/desktopicons.ts
+var PALETTE = {
+  k: "#000000",
+  w: "#ffffff",
+  g: "#c0c0c0",
+  d: "#808080",
+  y: "#ffff66",
+  Y: "#c0a000",
+  b: "#0000c0",
+  c: "#40e0e0",
+  n: "#009000"
+};
+var COMPUTER = [
+  "................",
+  ".kkkkkkkkkkkkkk.",
+  ".kggggggggggggk.",
+  ".kgddddddddddgk.",
+  ".kgdwwwcccccdgk.",
+  ".kgdwcccccccdgk.",
+  ".kgdwcccccccdgk.",
+  ".kgdccccccccdgk.",
+  ".kgddddddddddgk.",
+  ".kgggggggggnngk.",
+  ".kkkkkkkkkkkkkk.",
+  "......kkkk......",
+  "......kkkk......",
+  "..kwwwwwwwwwwk..",
+  "..kkkkkkkkkkkk..",
+  "................"
+];
+var FOLDER = [
+  "................",
+  "................",
+  ".kkkkkk.........",
+  ".kyyyyk.........",
+  ".kkkkkkkkkkkkkk.",
+  ".kwwwwwwwwwwwwk.",
+  ".kyyyyyyyyyyyYk.",
+  ".kyyyyyyyyyyyYk.",
+  ".kyyyyyyyyyyyYk.",
+  ".kyyyyyyyyyyyYk.",
+  ".kyyyyyyyyyyyYk.",
+  ".kyyyyyyyyyyyYk.",
+  ".kYYYYYYYYYYYYk.",
+  ".kkkkkkkkkkkkkk.",
+  "................",
+  "................"
+];
+var GLOBE = [
+  "......kkkk......",
+  "....kkkkkkkk....",
+  "...kkcccbbbkk...",
+  "..kknnnbbnnbkk..",
+  ".kknnnbbbbnnbkk.",
+  ".kbcnnbbbbbbbbk.",
+  "kkbcbbbbnnnnbbkk",
+  "kkbbcbbbbnnnbbkk",
+  "kkbbbbbbbbnnbbkk",
+  "kkbbbbnnbbbbbbkk",
+  ".kbbbbnnnbbbbbk.",
+  ".kkbbbbnnbbbbkk.",
+  "..kkbbbbbbbbkk..",
+  "...kkbbbbbbkk...",
+  "....kkkkkkkk....",
+  "......kkkk......"
+];
+var BIN = [
+  "......kggk......",
+  "......kkkk......",
+  "..kkkkkkkkkkkk..",
+  "..kkkkkkkkkkkk..",
+  "...kkkkkkkkkk...",
+  "...kgwgdgwgdk...",
+  "...kgwgdgwgdk...",
+  "...kgwgdgwgdk...",
+  "...kgwgnnwgdk...",
+  "...kgwndgngdk...",
+  "...kgwgnnwgdk...",
+  "...kgwndgngdk...",
+  "...kgwgdgwgdk...",
+  "...kgdddddddk...",
+  "...kkkkkkkkkk...",
+  "................"
+];
+var DESKTOP_ICONS = [
+  { id: "computer", label: "My Computer", rows: COMPUTER },
+  { id: "folder", label: "My Documents", rows: FOLDER },
+  { id: "internet", label: "Internet", rows: GLOBE },
+  { id: "bin", label: "Recycle Bin", rows: BIN }
+];
+function bitmapSvg(doc, rows, palette2) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = doc.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${rows[0]?.length ?? 0} ${rows.length}`);
+  svg.setAttribute("shape-rendering", "crispEdges");
+  svg.setAttribute("aria-hidden", "true");
+  rows.forEach((row, y) => {
+    let x = 0;
+    while (x < row.length) {
+      const c = row[x];
+      const fill = palette2[c];
+      if (!fill) {
+        x++;
+        continue;
+      }
+      let end = x + 1;
+      while (end < row.length && row[end] === c) end++;
+      const r = doc.createElementNS(NS, "rect");
+      r.setAttribute("x", String(x));
+      r.setAttribute("y", String(y));
+      r.setAttribute("width", String(end - x));
+      r.setAttribute("height", "1");
+      r.setAttribute("fill", fill);
+      svg.append(r);
+      x = end;
+    }
+  });
+  return svg;
+}
+function buildDesktop(doc, into) {
+  const figures = DESKTOP_ICONS.map((icon) => {
+    const fig = doc.createElement("div");
+    fig.className = `vl-icon vl-icon-${icon.id}`;
+    const cap = doc.createElement("span");
+    cap.className = "vl-icon-label";
+    cap.textContent = icon.label;
+    fig.append(bitmapSvg(doc, icon.rows, PALETTE), cap);
+    return fig;
+  });
+  into.replaceChildren(...figures);
+}
+
+// src/pixeltext.ts
+var GLYPHS = {
+  "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+  "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+  "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+  "3": ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+  "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+  "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+  "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+  "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+  "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+  "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+  ":": [".", ".", "#", ".", "#", ".", "."]
+};
+var GLYPH_ROWS = 7;
+var isPixelChar = (c) => c in GLYPHS;
+function runsOf(text) {
+  const out = [];
+  for (const ch of Array.from(text)) {
+    const pixel = isPixelChar(ch);
+    const last = out[out.length - 1];
+    if (last && last.pixel === pixel) last.text += ch;
+    else out.push({ pixel, text: ch });
+  }
+  return out;
+}
+function pixelWidth(text) {
+  const chars = Array.from(text).filter(isPixelChar);
+  return chars.reduce((w, ch) => w + GLYPHS[ch][0].length, 0) + Math.max(0, chars.length - 1);
+}
+function pixelSvg(doc, text) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = doc.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${pixelWidth(text)} ${GLYPH_ROWS}`);
+  svg.setAttribute("shape-rendering", "crispEdges");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("vl-px-digits");
+  let x = 0;
+  for (const ch of Array.from(text)) {
+    const rows = GLYPHS[ch];
+    if (!rows) continue;
+    rows.forEach((row, y) => {
+      let c = 0;
+      while (c < row.length) {
+        if (row[c] !== "#") {
+          c++;
+          continue;
         }
+        let end = c + 1;
+        while (end < row.length && row[end] === "#") end++;
+        const r = doc.createElementNS(NS, "rect");
+        r.setAttribute("x", String(x + c));
+        r.setAttribute("y", String(y));
+        r.setAttribute("width", String(end - c));
+        r.setAttribute("height", "1");
+        svg.append(r);
+        c = end;
       }
-    } else if (this.kind === "trail") {
-      for (const p of this.particles) {
-        const f = 1 - p.age / p.life;
-        if (f < 0.3 && Math.floor(time * 18 + p.ci) % 2 === 0) continue;
-        const s = p.size;
-        ctx.fillStyle = this.color(p.ci);
-        ctx.fillRect(Math.floor(p.x / PIXEL), Math.floor(p.y / PIXEL), s, s);
-      }
-    } else {
-      for (const o of this.orbs) {
-        const cx = Math.round(o.x / PIXEL);
-        const cy = Math.round(o.y / PIXEL);
-        const r = Math.round(o.r / PIXEL);
-        for (let y = -r; y <= r; y++) {
-          for (let x = -r; x <= r; x++) {
-            const d = x * x + y * y;
-            if (d > r * r + 1) continue;
-            ctx.fillStyle = d > (r - 1) * (r - 1) ? "#0d0b1e" : this.color(o.ci);
-            ctx.fillRect(cx + x, cy + y, 1, 1);
-          }
-        }
-        cell(o.x - o.r * 0.4, o.y - o.r * 0.4, "#ffffff");
-      }
+    });
+    x += rows[0].length + 1;
+  }
+  return svg;
+}
+
+// src/games/game.ts
+var PAUSED_LINES = ["PAUSED", "ESC: BACK TO GAME"];
+
+// src/games/breakout.ts
+var W2 = 280;
+var H = 320;
+var HUD = 24;
+var COLS = 8;
+var ROWS = 5;
+var BRICK_W = 29;
+var BRICK_H = 11;
+var BRICK_GAP = 4;
+var BRICK_TOP = HUD + 18;
+var BRICK_LEFT = (W2 - (COLS * BRICK_W + (COLS - 1) * BRICK_GAP)) / 2;
+var PADDLE_W = 52;
+var PADDLE_H = 6;
+var PADDLE_Y = H - 28;
+var PADDLE_SPEED = 340;
+var BALL_R = 4;
+var MAX_ANGLE = 62 * Math.PI / 180;
+var MIN_ANGLE = 9 * Math.PI / 180;
+var START_LIVES = 3;
+var POINTS = 10;
+var clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+function ballSpeed(level) {
+  return Math.min(330, 200 + (level - 1) * 20);
+}
+function makeBricks() {
+  const out = [];
+  for (let row = 0; row < ROWS; row++)
+    for (let col = 0; col < COLS; col++) out.push({ x: BRICK_LEFT + col * (BRICK_W + BRICK_GAP), y: BRICK_TOP + row * (BRICK_H + BRICK_GAP), row });
+  return out;
+}
+function newGame() {
+  const s = {
+    paddle: { x: W2 / 2, y: PADDLE_Y, w: PADDLE_W, h: PADDLE_H },
+    ball: { x: W2 / 2, y: PADDLE_Y - BALL_R, vx: 0, vy: 0, r: BALL_R },
+    bricks: makeBricks(),
+    lives: START_LIVES,
+    level: 1,
+    score: 0,
+    status: "ready"
+  };
+  return s;
+}
+function stick(s) {
+  s.ball.x = s.paddle.x;
+  s.ball.y = s.paddle.y - s.ball.r;
+  s.ball.vx = s.ball.vy = 0;
+}
+function movePaddleTo(s, x) {
+  s.paddle.x = clamp(x, s.paddle.w / 2, W2 - s.paddle.w / 2);
+  if (s.status === "ready") stick(s);
+}
+function launch(s, rng) {
+  if (s.status !== "ready") return;
+  const angle = (rng() - 0.5) * 0.7;
+  const speed = ballSpeed(s.level);
+  s.ball.vx = speed * Math.sin(angle);
+  s.ball.vy = -speed * Math.cos(angle);
+  s.status = "running";
+}
+function circleHitsRect(cx, cy, r, rx, ry, rw, rh) {
+  const nx = clamp(cx, rx, rx + rw);
+  const ny = clamp(cy, ry, ry + rh);
+  const dx = cx - nx;
+  const dy = cy - ny;
+  return dx * dx + dy * dy <= r * r;
+}
+function loseLife(s) {
+  s.lives -= 1;
+  if (s.lives <= 0) {
+    s.lives = 0;
+    s.status = "over";
+    return;
+  }
+  s.status = "ready";
+  stick(s);
+}
+function nextLevel(s) {
+  s.level += 1;
+  s.bricks = makeBricks();
+  s.status = "ready";
+  stick(s);
+}
+function stepBall(s, dt) {
+  const b = s.ball;
+  const prevX = b.x;
+  const prevY = b.y;
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+  if (b.x - b.r < 0) {
+    b.x = b.r;
+    b.vx = Math.abs(b.vx);
+  } else if (b.x + b.r > W2) {
+    b.x = W2 - b.r;
+    b.vx = -Math.abs(b.vx);
+  }
+  if (b.y - b.r < HUD) {
+    b.y = HUD + b.r;
+    b.vy = Math.abs(b.vy);
+  }
+  const p = s.paddle;
+  if (b.vy > 0 && prevY + b.r <= p.y + 2 && b.y + b.r >= p.y && b.x >= p.x - p.w / 2 - b.r && b.x <= p.x + p.w / 2 + b.r) {
+    const offset = clamp((b.x - p.x) / (p.w / 2 + b.r), -1, 1);
+    const speed2 = Math.hypot(b.vx, b.vy);
+    let angle = offset * MAX_ANGLE;
+    if (Math.abs(angle) < MIN_ANGLE) angle = (offset < 0 || offset === 0 && b.vx < 0 ? -1 : 1) * MIN_ANGLE;
+    b.vx = speed2 * Math.sin(angle);
+    b.vy = -speed2 * Math.cos(angle);
+    b.y = p.y - b.r;
+  }
+  for (let i = 0; i < s.bricks.length; i++) {
+    const k = s.bricks[i];
+    if (!circleHitsRect(b.x, b.y, b.r, k.x, k.y, BRICK_W, BRICK_H)) continue;
+    s.bricks.splice(i, 1);
+    s.score += POINTS;
+    if (prevX < k.x || prevX > k.x + BRICK_W) b.vx = -b.vx;
+    else b.vy = -b.vy;
+    break;
+  }
+  const speed = Math.hypot(b.vx, b.vy);
+  const minVy = speed * 0.2;
+  if (speed > 0 && Math.abs(b.vy) < minVy) {
+    b.vy = (b.vy < 0 ? -1 : 1) * minVy;
+    b.vx = (b.vx < 0 ? -1 : 1) * Math.sqrt(speed * speed - minVy * minVy);
+  }
+  if (s.bricks.length === 0) nextLevel(s);
+  else if (b.y - b.r > H) loseLife(s);
+}
+function tick(s, dt, dir) {
+  if (s.status === "over") return;
+  if (dir !== 0) movePaddleTo(s, s.paddle.x + dir * PADDLE_SPEED * dt);
+  if (s.status !== "running") return;
+  const dist = Math.hypot(s.ball.vx, s.ball.vy) * dt;
+  const n = Math.max(1, Math.ceil(dist / 2));
+  for (let i = 0; i < n && s.status === "running"; i++) stepBall(s, dt / n);
+}
+var NEON = {
+  bg: "#070816",
+  frame: "#312e6b",
+  cyan: "#5ad2e6",
+  magenta: "#d46ee6",
+  purple: "#9d8cf0",
+  text: "#b8c4e6",
+  dim: "#4b4f86"
+};
+var ROW_COLORS = [NEON.magenta, NEON.purple, NEON.cyan, NEON.purple, NEON.magenta];
+var FONT = "10px ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
+var pad4 = (n) => String(Math.min(n, 999999)).padStart(4, "0");
+var BreakoutGame = class {
+  constructor(rng = Math.random) {
+    this.rng = rng;
+    this.id = "breakout";
+    this.width = W2;
+    this.height = H;
+    this.s = newGame();
+    this.best = 0;
+    this.left = false;
+    this.right = false;
+  }
+  get dir() {
+    return this.left === this.right ? 0 : this.left ? -1 : 1;
+  }
+  /** Also true while only the paddle is being moved by a held key, so it glides instead of stepping. */
+  get running() {
+    return this.s.status === "running" || this.s.status === "ready" && this.dir !== 0;
+  }
+  get score() {
+    return this.s.score;
+  }
+  setHighScore(score) {
+    this.best = score;
+  }
+  reset() {
+    this.s = newGame();
+    this.releaseKeys();
+  }
+  releaseKeys() {
+    this.left = this.right = false;
+  }
+  update(dt) {
+    tick(this.s, dt, this.dir);
+  }
+  key(code, down) {
+    if (code === "ArrowLeft" || code === "KeyA") {
+      this.left = down;
+      return true;
+    }
+    if (code === "ArrowRight" || code === "KeyD") {
+      this.right = down;
+      return true;
+    }
+    if (code === "Space") {
+      if (down) this.primary();
+      return true;
+    }
+    return false;
+  }
+  pointer(x) {
+    if (this.s.status !== "over") movePaddleTo(this.s, x);
+  }
+  pointerDown() {
+    this.primary();
+    return true;
+  }
+  /** Space or a click: launch the ball, or start over after the last life. */
+  primary() {
+    if (this.s.status === "ready") launch(this.s, this.rng);
+    else if (this.s.status === "over") {
+      this.s = newGame();
+      this.releaseKeys();
     }
   }
-  /** Comic style: halftone dots, outlined stars, glossy outlined balls. */
-  drawCartoon(ctx, _time) {
-    const ink = "#111";
-    if (this.kind === "glow") {
-      const R = Math.min(this.w, this.h) * 0.3;
-      const step = 15;
-      const x0 = Math.floor((this.pos.x - R) / step) * step;
-      const y0 = Math.floor((this.pos.y - R) / step) * step;
-      ctx.fillStyle = this.color(1);
-      ctx.globalAlpha = 0.75 * this.glowAlpha;
-      for (let y = y0; y < this.pos.y + R; y += step) {
-        for (let x = x0; x < this.pos.x + R; x += step) {
-          const ox = (y / step & 1) * (step / 2);
-          const px = x + ox;
-          const d = Math.hypot(px - this.pos.x, y - this.pos.y) / R;
-          if (d >= 1) continue;
-          const r = (1 - d) * (step * 0.62);
-          ctx.beginPath();
-          ctx.arc(px, y, r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.globalAlpha = 1;
-    } else if (this.kind === "trail") {
-      for (const p of this.particles) {
-        const f = 1 - p.age / p.life;
-        const pop = f > 0.85 ? 0.6 + (1 - f) * 8 : 0.35 + f * 0.65;
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
-        ctx.scale(pop, pop);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = ink;
-        ctx.fillStyle = this.color(p.ci);
-        this.star(ctx, p.size, p.size * 0.45, 5);
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      }
-    } else {
-      for (const o of this.orbs) {
-        ctx.fillStyle = "rgba(0,0,0,0.3)";
-        ctx.beginPath();
-        ctx.arc(o.x + 4, o.y + 4, o.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = ink;
-        ctx.fillStyle = this.color(o.ci);
-        ctx.beginPath();
-        ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        ctx.strokeStyle = "rgba(255,255,255,0.9)";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(o.x, o.y, o.r * 0.62, Math.PI * 1.15, Math.PI * 1.5);
-        ctx.stroke();
-      }
+  draw(ctx, paused) {
+    const s = this.s;
+    ctx.fillStyle = NEON.bg;
+    ctx.fillRect(0, 0, W2, H);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = NEON.frame;
+    ctx.strokeRect(0.5, HUD + 0.5, W2 - 1, H - HUD - 1);
+    ctx.font = FONT;
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = NEON.text;
+    ctx.textAlign = "left";
+    ctx.fillText(`SCORE ${pad4(s.score)}`, 6, HUD / 2);
+    ctx.textAlign = "right";
+    ctx.fillText(`HI ${pad4(Math.max(this.best, s.score))}`, W2 - 6, HUD / 2);
+    for (let i = 0; i < START_LIVES; i++) {
+      ctx.strokeStyle = i < s.lives ? NEON.magenta : NEON.dim;
+      ctx.beginPath();
+      ctx.arc(W2 / 2 - 12 + i * 12, HUD / 2, 3, 0, Math.PI * 2);
+      ctx.stroke();
     }
-  }
-  star(ctx, outer, inner, points) {
+    for (const k of s.bricks) {
+      ctx.strokeStyle = ROW_COLORS[k.row % ROW_COLORS.length];
+      ctx.strokeRect(Math.round(k.x) + 0.5, Math.round(k.y) + 0.5, BRICK_W - 1, BRICK_H - 1);
+    }
+    ctx.strokeStyle = NEON.cyan;
+    ctx.strokeRect(Math.round(s.paddle.x - s.paddle.w / 2) + 0.5, s.paddle.y + 0.5, s.paddle.w - 1, s.paddle.h - 1);
+    ctx.strokeStyle = NEON.cyan;
     ctx.beginPath();
-    for (let i = 0; i < points * 2; i++) {
-      const r = i % 2 === 0 ? outer : inner;
-      const a = i * Math.PI / points - Math.PI / 2;
-      const x = Math.cos(a) * r;
-      const y = Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    ctx.arc(s.ball.x, s.ball.y, s.ball.r - 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+    const msg = paused ? PAUSED_LINES : s.status === "ready" ? ["CLICK OR SPACE", "MOUSE OR ARROWS MOVE"] : s.status === "over" ? ["GAME OVER", "SPACE TO RETRY"] : null;
+    if (msg) {
+      const bw = 160;
+      const bh = 40;
+      const bx = Math.round((W2 - bw) / 2);
+      const by = Math.round(H * 0.58);
+      ctx.fillStyle = NEON.bg;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = NEON.purple;
+      ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+      ctx.textAlign = "center";
+      ctx.fillStyle = NEON.cyan;
+      ctx.fillText(msg[0], W2 / 2, by + 14);
+      ctx.fillStyle = NEON.text;
+      ctx.fillText(msg[1], W2 / 2, by + 28);
     }
-    ctx.closePath();
   }
 };
 
-// src/segments.ts
-var SVG_NS = "http://www.w3.org/2000/svg";
-function hbar(cx, cy, len, th) {
-  const h = th / 2;
-  const l = len / 2;
-  return `${cx - l},${cy} ${cx - l + h},${cy - h} ${cx + l - h},${cy - h} ${cx + l},${cy} ${cx + l - h},${cy + h} ${cx - l + h},${cy + h}`;
+// src/games/pixels.ts
+var bitmapSize = (rows) => ({ w: rows[0]?.length ?? 0, h: rows.length });
+function drawBitmap(ctx, rows, palette2, x, y, scale) {
+  const ox = Math.round(x);
+  const oy = Math.round(y);
+  rows.forEach((row, ry) => {
+    let rx = 0;
+    while (rx < row.length) {
+      const c = row[rx];
+      if (c === ".") {
+        rx++;
+        continue;
+      }
+      let end = rx + 1;
+      while (end < row.length && row[end] === c) end++;
+      ctx.fillStyle = palette2[c];
+      ctx.fillRect(ox + rx * scale, oy + ry * scale, (end - rx) * scale, scale);
+      rx = end;
+    }
+  });
 }
-function vbar(cx, cy, len, th) {
-  const h = th / 2;
-  const l = len / 2;
-  return `${cx},${cy - l} ${cx + h},${cy - l + h} ${cx + h},${cy + l - h} ${cx},${cy + l} ${cx - h},${cy + l - h} ${cx - h},${cy - l + h}`;
+
+// src/games/runner.ts
+var HEAD = [
+  ".gggggg.......",
+  ".gggggg.......",
+  ".pppppppppppp.",
+  ".ffffffffffff.",
+  ".ffkffffffkff.",
+  ".ffffffffffff.",
+  ".gggggggggggg."
+];
+var BODY2 = [
+  "....ssssss....",
+  "...ssssssss...",
+  "..ssssssssss..",
+  "...ssssssss...",
+  "...ssssssss..."
+];
+var RUN_A = [...HEAD, ...BODY2, "...ll....ll...", "...ll....ll...", "...ll.........", "..lll........."];
+var RUN_B = [...HEAD, ...BODY2, "...ll....ll...", "...ll....ll...", ".........ll...", ".........lll.."];
+var JUMP = [...HEAD, ...BODY2, "...ll....ll...", "...ll....ll...", "..lll....lll..", ".............."];
+var SPIKE = ["...s...", "...s...", "..sss..", "..sss..", ".sssss.", ".sssss.", "sssssss", "sssssss"];
+var LOCKED_FOLDER = [
+  ".gggg.......",
+  "ffffffffffff",
+  "ffffooooffff",
+  "ffffoffoffff",
+  "fffoooooofff",
+  "fffoyyyyofff",
+  "fffoyyyyofff",
+  "fffoooooofff",
+  "ffffffffffff",
+  "gggggggggggg"
+];
+var CLOUD = [
+  "......ccc...........",
+  "....ccccccc...ccc...",
+  "..ccccccccccccccccc.",
+  "ccccccccccccccccccc.",
+  ".cccccccccccccccccc."
+];
+var PALETTE2 = {
+  g: "#9ca3af",
+  f: "#e5e7eb",
+  p: "#ffffff",
+  k: "#1f2937",
+  s: "#6b7280",
+  l: "#e0925c",
+  o: "#1f2937",
+  y: "#d9ad5f",
+  c: "#62636a"
+};
+var SPIKE_PALETTE = { s: "#b4b9c2" };
+var W3 = 320;
+var H2 = 160;
+var GROUND_Y = 130;
+var S = 2;
+var CHAR_X = 36;
+var CHAR_W = bitmapSize(RUN_A).w * S;
+var CHAR_H = bitmapSize(RUN_A).h * S;
+var GRAVITY = 1650;
+var JUMP_V = 440;
+var START_SPEED = 150;
+var MAX_SPEED = 340;
+var ACCEL = 5;
+var CLOUD_TOP = 22;
+var CLOUD_SPAN = 24;
+var HIT = { left: 6, right: 6, top: 5 };
+var OBSTACLE_INSET = 3;
+function newGame2(rng) {
+  return {
+    status: "idle",
+    y: 0,
+    vy: 0,
+    speed: START_SPEED,
+    dist: 0,
+    t: 0,
+    untilNext: 240,
+    obstacles: [],
+    clouds: [0, 1, 2].map((i) => ({ x: 20 + i * 115 + rng() * 40, y: CLOUD_TOP + rng() * CLOUD_SPAN }))
+  };
 }
-var SEGMENTS = {
-  a: hbar(30, 5, 40, 9),
-  b: vbar(55, 28.5, 38, 9),
-  c: vbar(55, 75.5, 38, 9),
-  d: hbar(30, 99, 40, 9),
-  e: vbar(5, 75.5, 38, 9),
-  f: vbar(5, 28.5, 38, 9),
-  g: hbar(30, 52, 40, 9)
-};
-var LIT = {
-  "0": "abcdef",
-  "1": "bc",
-  "2": "abdeg",
-  "3": "abcdg",
-  "4": "bcfg",
-  "5": "acdfg",
-  "6": "acdefg",
-  "7": "abc",
-  "8": "abcdefg",
-  "9": "abcdfg"
-};
-function digitSvg(doc, ch) {
-  const svg = doc.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("viewBox", "0 0 60 104");
-  svg.setAttribute("class", "vault-lock-seg");
-  svg.setAttribute("aria-hidden", "true");
-  const lit = LIT[ch] ?? "";
-  for (const [name, points] of Object.entries(SEGMENTS)) {
-    const poly = doc.createElementNS(SVG_NS, "polygon");
-    poly.setAttribute("points", points);
-    if (lit.includes(name)) poly.setAttribute("class", "on");
-    svg.append(poly);
+function start(s) {
+  if (s.status === "idle") s.status = "running";
+}
+var onGround = (s) => s.y === 0;
+function jump(s) {
+  if (s.status !== "running" || !onGround(s)) return;
+  s.vy = JUMP_V;
+}
+var scoreOf = (s) => Math.floor(s.dist / 10);
+function gapFor(speed, rng) {
+  return 0.7 * speed + 80 + rng() * 160;
+}
+function spawnObstacle(rng) {
+  if (rng() < 0.35) {
+    const b2 = bitmapSize(LOCKED_FOLDER);
+    return { x: W3 + 4, kind: "folder", count: 1, w: b2.w * S, h: b2.h * S };
   }
-  return svg;
+  const count = 1 + Math.min(2, Math.floor(rng() * 3));
+  const b = bitmapSize(SPIKE);
+  return { x: W3 + 4, kind: "spikes", count, w: b.w * S * count, h: b.h * S };
+}
+function hits(s, o) {
+  const cl = CHAR_X + HIT.left;
+  const cr = CHAR_X + CHAR_W - HIT.right;
+  const cb = GROUND_Y - s.y;
+  const ct = cb - CHAR_H + HIT.top;
+  const ol = o.x + OBSTACLE_INSET;
+  const or = o.x + o.w - OBSTACLE_INSET;
+  const ot = GROUND_Y - o.h + 2;
+  return cr > ol && cl < or && cb > ot && ct < GROUND_Y;
+}
+function tick2(s, dt, rng) {
+  if (s.status !== "running") return;
+  s.t += dt;
+  s.speed = Math.min(MAX_SPEED, START_SPEED + ACCEL * s.t);
+  const run = s.speed * dt;
+  s.dist += run;
+  if (s.y > 0 || s.vy > 0) {
+    s.vy -= GRAVITY * dt;
+    s.y += s.vy * dt;
+    if (s.y <= 0) {
+      s.y = 0;
+      s.vy = 0;
+    }
+  }
+  for (const o of s.obstacles) o.x -= run;
+  s.obstacles = s.obstacles.filter((o) => o.x + o.w > 0);
+  s.untilNext -= run;
+  if (s.untilNext <= 0) {
+    const o = spawnObstacle(rng);
+    s.obstacles.push(o);
+    s.untilNext = o.w + gapFor(s.speed, rng);
+  }
+  for (const c of s.clouds) {
+    c.x -= run * 0.2;
+    if (c.x < -CLOUD[0].length * S) {
+      c.x = W3 + rng() * 60;
+      c.y = CLOUD_TOP + rng() * CLOUD_SPAN;
+    }
+  }
+  if (s.obstacles.some((o) => hits(s, o))) s.status = "over";
+}
+var BG = "#2a2a2d";
+var GROUND = "#6b7280";
+var TEXT = "#d1d5db";
+var TEXT_DIM = "#8b9099";
+var FONT2 = "bold 11px ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
+var pad5 = (n) => String(Math.min(n, 99999)).padStart(5, "0");
+function hash(n) {
+  return Math.imul(n ^ 2654435769, 2654435761) >>> 0;
+}
+var RunnerGame = class {
+  constructor(rng = Math.random) {
+    this.rng = rng;
+    this.id = "runner";
+    this.width = W3;
+    this.height = H2;
+    this.best = 0;
+    this.s = newGame2(rng);
+  }
+  get running() {
+    return this.s.status === "running";
+  }
+  get score() {
+    return scoreOf(this.s);
+  }
+  setHighScore(score) {
+    this.best = score;
+  }
+  reset() {
+    this.s = newGame2(this.rng);
+  }
+  update(dt) {
+    tick2(this.s, dt, this.rng);
+  }
+  key(code, down) {
+    if (code !== "Space" && code !== "ArrowUp" && code !== "KeyW") return false;
+    if (down) this.primary();
+    return true;
+  }
+  pointerDown() {
+    this.primary();
+    return true;
+  }
+  /** Space, Up or a tap: start, jump, or start over. */
+  primary() {
+    if (this.s.status === "over") this.s = newGame2(this.rng);
+    if (this.s.status === "idle") start(this.s);
+    jump(this.s);
+  }
+  draw(ctx, paused) {
+    const s = this.s;
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W3, H2);
+    for (const c of s.clouds) drawBitmap(ctx, CLOUD, PALETTE2, c.x, c.y, S);
+    ctx.fillStyle = GROUND;
+    ctx.fillRect(0, GROUND_Y, W3, 1);
+    const off = Math.floor(s.dist);
+    for (let x = -(off % 8); x < W3; x += 8) {
+      const h = hash(Math.floor((x + off) / 8));
+      if (h % 3 !== 0) continue;
+      ctx.fillRect(x, GROUND_Y + 5 + (h >>> 8) % 3 * 6, 2 + (h >>> 4) % 5, 1);
+    }
+    for (const o of s.obstacles) {
+      if (o.kind === "folder") drawBitmap(ctx, LOCKED_FOLDER, PALETTE2, o.x, GROUND_Y - o.h, S);
+      else for (let i = 0; i < o.count; i++) drawBitmap(ctx, SPIKE, SPIKE_PALETTE, o.x + i * SPIKE[0].length * S, GROUND_Y - o.h, S);
+    }
+    const frame = s.y > 0 ? JUMP : Math.floor(s.t / 0.09) % 2 === 0 ? RUN_A : RUN_B;
+    drawBitmap(ctx, s.status === "over" ? JUMP : frame, PALETTE2, CHAR_X, GROUND_Y - s.y - CHAR_H, S);
+    ctx.font = FONT2;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "right";
+    ctx.fillStyle = TEXT;
+    ctx.fillText(pad5(this.score), W3 - 8, 12);
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText(`HI ${pad5(Math.max(this.best, this.score))}`, W3 - 8 - 5 * 7 - 10, 12);
+    const msg = paused ? PAUSED_LINES : s.status === "idle" ? ["PRESS SPACE", "OR UP ARROW"] : s.status === "over" ? ["GAME OVER", "SPACE TO RETRY"] : null;
+    if (msg) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = TEXT;
+      ctx.font = "bold 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
+      ctx.fillText(msg[0], W3 / 2, 70);
+      ctx.fillStyle = TEXT_DIM;
+      ctx.font = "10px ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
+      ctx.fillText(msg[1], W3 / 2, 86);
+    }
+  }
+};
+
+// src/games/snake.ts
+var DELTA = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
+var OPPOSITE = { up: "down", down: "up", left: "right", right: "left" };
+var MAX_QUEUE = 2;
+function newGame3(cols, rows, rng) {
+  const y = Math.floor(rows / 2);
+  const x = Math.floor(cols / 2);
+  const s = {
+    cols,
+    rows,
+    snake: [
+      { x, y },
+      { x: x - 1, y },
+      { x: x - 2, y }
+    ],
+    dir: "right",
+    queue: [],
+    food: null,
+    score: 0,
+    status: "idle",
+    acc: 0
+  };
+  s.food = placeFood(s, rng);
+  return s;
+}
+function start2(s) {
+  if (s.status === "idle") s.status = "running";
+}
+function speedFor(score) {
+  return Math.min(14, 7 + score * 0.3);
+}
+function turn(s, d) {
+  if (s.status !== "running") return;
+  const last = s.queue.length > 0 ? s.queue[s.queue.length - 1] : s.dir;
+  if (d === last || d === OPPOSITE[last]) return;
+  if (s.queue.length < MAX_QUEUE) s.queue.push(d);
+}
+var same = (a, b) => a.x === b.x && a.y === b.y;
+var onSnake = (s, p) => s.snake.some((q) => same(q, p));
+function placeFood(s, rng) {
+  const free = [];
+  for (let y = 0; y < s.rows; y++) for (let x = 0; x < s.cols; x++) if (!onSnake(s, { x, y })) free.push({ x, y });
+  if (free.length === 0) return null;
+  return free[Math.min(free.length - 1, Math.floor(rng() * free.length))];
+}
+function step(s, rng) {
+  if (s.status !== "running") return "moved";
+  const next = s.queue.shift();
+  if (next) s.dir = next;
+  const d = DELTA[s.dir];
+  const head = { x: s.snake[0].x + d.x, y: s.snake[0].y + d.y };
+  if (head.x < 0 || head.y < 0 || head.x >= s.cols || head.y >= s.rows) return die(s);
+  const eating = s.food !== null && same(head, s.food);
+  const body2 = eating ? s.snake : s.snake.slice(0, -1);
+  if (body2.some((q) => same(q, head))) return die(s);
+  s.snake.unshift(head);
+  if (!eating) {
+    s.snake.pop();
+    return "moved";
+  }
+  s.score += 1;
+  s.food = placeFood(s, rng);
+  if (s.food === null) {
+    s.status = "won";
+    return "won";
+  }
+  return "ate";
+}
+function die(s) {
+  s.status = "over";
+  return "died";
+}
+function tick3(s, dt, rng) {
+  if (s.status !== "running") return;
+  s.acc += dt;
+  const interval = 1 / speedFor(s.score);
+  while (s.acc >= interval && s.status === "running") {
+    s.acc -= interval;
+    step(s, rng);
+  }
+}
+var LCD = { darkest: "#0F380F", dark: "#306230", light: "#8BAC0F", lightest: "#9BBC0F" };
+var COLS2 = 18;
+var ROWS2 = 18;
+var CELL = 12;
+var WALL = 1;
+var HUD2 = 26;
+var W4 = (COLS2 + 2 * WALL) * CELL;
+var H3 = HUD2 + (ROWS2 + 2 * WALL) * CELL;
+var KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+var pad2 = (n) => String(Math.min(n, 99)).padStart(2, "0");
+var SnakeGame = class {
+  // where the last touch or click landed, in canvas px
+  constructor(rng = Math.random) {
+    this.rng = rng;
+    this.id = "snake";
+    this.width = W4;
+    this.height = H3;
+    this.best = 0;
+    this.ptr = null;
+    this.s = newGame3(COLS2, ROWS2, rng);
+  }
+  get running() {
+    return this.s.status === "running";
+  }
+  get score() {
+    return this.s.score;
+  }
+  setHighScore(score) {
+    this.best = score;
+  }
+  reset() {
+    this.s = newGame3(COLS2, ROWS2, this.rng);
+  }
+  update(dt) {
+    tick3(this.s, dt, this.rng);
+  }
+  key(code, down) {
+    if (!down) return code in KEYS || code === "Space";
+    const dir = KEYS[code];
+    if (dir) {
+      if (this.s.status === "idle") start2(this.s);
+      turn(this.s, dir);
+      return true;
+    }
+    if (code === "Space") {
+      if (this.s.status === "idle") start2(this.s);
+      else if (this.s.status === "over" || this.s.status === "won") {
+        this.s = newGame3(COLS2, ROWS2, this.rng);
+        start2(this.s);
+      }
+      return true;
+    }
+    return false;
+  }
+  pointer(x, y) {
+    this.ptr = { x, y };
+  }
+  /** Start or restart with a tap; while running, a tap steers toward the tapped side of the head (no keys on a phone). */
+  pointerDown() {
+    const s = this.s;
+    if (s.status === "idle") start2(s);
+    else if (s.status === "over" || s.status === "won") {
+      this.s = newGame3(COLS2, ROWS2, this.rng);
+      start2(this.s);
+    } else if (s.status === "running" && this.ptr) {
+      const hx = WALL * CELL + s.snake[0].x * CELL + CELL / 2;
+      const hy = HUD2 + WALL * CELL + s.snake[0].y * CELL + CELL / 2;
+      const dx = this.ptr.x - hx;
+      const dy = this.ptr.y - hy;
+      turn(s, Math.abs(dx) > Math.abs(dy) ? dx > 0 ? "right" : "left" : dy > 0 ? "down" : "up");
+    }
+    return true;
+  }
+  draw(ctx, paused) {
+    const s = this.s;
+    ctx.fillStyle = LCD.lightest;
+    ctx.fillRect(0, 0, W4, H3);
+    ctx.fillStyle = LCD.darkest;
+    ctx.font = "bold 11px 'Courier New', ui-monospace, monospace";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.fillText(`SCORE ${pad2(s.score)}`, 6, HUD2 / 2);
+    ctx.textAlign = "right";
+    ctx.fillText(`HI-SCORE ${pad2(Math.max(this.best, s.score))}`, W4 - 6, HUD2 / 2);
+    const top = HUD2;
+    for (let y = 0; y < ROWS2 + 2 * WALL; y++) {
+      for (let x = 0; x < COLS2 + 2 * WALL; x++) {
+        if (x >= WALL && x < COLS2 + WALL && y >= WALL && y < ROWS2 + WALL) continue;
+        const px = x * CELL;
+        const py = top + y * CELL;
+        ctx.fillStyle = LCD.dark;
+        ctx.fillRect(px, py, CELL, CELL);
+        ctx.fillStyle = LCD.darkest;
+        ctx.fillRect(px, py + CELL / 2, CELL, 1);
+        ctx.fillRect(px + ((x + y) % 2 === 0 ? 3 : CELL - 4), py, 1, CELL / 2);
+        ctx.fillRect(px + ((x + y) % 2 === 0 ? CELL - 4 : 3), py + CELL / 2, 1, CELL / 2);
+      }
+    }
+    const fx = WALL * CELL;
+    const fy = top + WALL * CELL;
+    ctx.fillStyle = LCD.light;
+    ctx.fillRect(fx, fy, COLS2 * CELL, ROWS2 * CELL);
+    if (s.food) {
+      const cx = fx + s.food.x * CELL + CELL / 2;
+      const cy = fy + s.food.y * CELL + CELL / 2 + 1;
+      ctx.fillStyle = LCD.darkest;
+      ctx.beginPath();
+      ctx.arc(cx, cy, CELL / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = LCD.dark;
+      ctx.fillRect(cx, cy - CELL / 2 + 0, 2, 3);
+    }
+    s.snake.forEach((p, i) => {
+      ctx.fillStyle = i === 0 ? LCD.darkest : LCD.dark;
+      ctx.fillRect(fx + p.x * CELL + 1, fy + p.y * CELL + 1, CELL - 2, CELL - 2);
+    });
+    const h = s.snake[0];
+    ctx.fillStyle = LCD.lightest;
+    ctx.fillRect(fx + h.x * CELL + CELL - 5, fy + h.y * CELL + 3, 2, 2);
+    const msg = paused ? PAUSED_LINES : s.status === "idle" ? ["PRESS SPACE", "OR AN ARROW"] : s.status === "over" ? ["GAME OVER", "SPACE TO RETRY"] : s.status === "won" ? ["YOU WIN", "SPACE TO PLAY"] : [];
+    if (msg.length > 0) {
+      const bw = 150;
+      const bh = 18 + msg.length * 14;
+      const bx = (W4 - bw) / 2;
+      const by = fy + (ROWS2 * CELL - bh) / 2;
+      ctx.fillStyle = LCD.lightest;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = LCD.darkest;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bx + 1, by + 1, bw - 2, bh - 2);
+      ctx.fillStyle = LCD.darkest;
+      ctx.textAlign = "center";
+      ctx.font = "bold 12px 'Courier New', ui-monospace, monospace";
+      msg.forEach((line, i) => {
+        if (i === 1) ctx.font = "10px 'Courier New', ui-monospace, monospace";
+        ctx.fillText(line, W4 / 2, by + 16 + i * 14);
+      });
+    }
+  }
+};
+
+// src/games/host.ts
+function isControl(el) {
+  if (!el) return false;
+  return ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(el.tagName);
+}
+var MAX_DT = 0.05;
+var GameHost = class {
+  constructor(game, o) {
+    this.game = game;
+    this.o = o;
+    this.ac = new AbortController();
+    this.raf = 0;
+    this.pauseTimer = 0;
+    this.last = 0;
+    this.active = false;
+    this.frozen = false;
+    this.paused = false;
+    this.wasRunning = false;
+    this.destroyed = false;
+    this.best = o.highScore;
+    game.setHighScore(o.highScore);
+    const { doc, win } = o;
+    const canvas = this.canvas = doc.createElement("canvas");
+    canvas.className = "vault-lock-game-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    const dpr = Math.min(2, win.devicePixelRatio || 1);
+    canvas.width = Math.round(game.width * dpr);
+    canvas.height = Math.round(game.height * dpr);
+    canvas.style.setProperty("--vl-game-w", `${game.width}px`);
+    canvas.style.setProperty("--vl-game-r", String(game.width / game.height));
+    canvas.style.aspectRatio = `${game.width} / ${game.height}`;
+    this.ctx = canvas.getContext("2d");
+    this.ctx?.scale(dpr, dpr);
+    o.mount.replaceChildren(canvas);
+    const sig = { signal: this.ac.signal };
+    o.root.addEventListener("keydown", (e) => this.onKey(e, true), sig);
+    o.root.addEventListener("keyup", (e) => this.onKey(e, false), sig);
+    o.root.addEventListener("focusin", () => this.syncPause(), sig);
+    o.root.addEventListener("focusout", () => this.syncPauseSoon(), sig);
+    doc.addEventListener("visibilitychange", () => this.syncPause(), sig);
+    canvas.addEventListener("pointermove", (e) => this.onPointer(e), sig);
+    canvas.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!this.active) return;
+        o.root.focus({ preventScroll: true });
+        this.reportPointer(e);
+        if (game.pointerDown?.()) e.preventDefault();
+        this.kick();
+      },
+      sig
+    );
+    this.reset();
+  }
+  /** The overlay is showing (locked or previewing) or not. Leaving it resets the game to its start screen. */
+  setActive(active) {
+    if (this.destroyed) return;
+    if (active) {
+      if (this.active && !this.frozen) return;
+      if (this.frozen) this.reset();
+      this.frozen = false;
+      this.active = true;
+      this.syncPause();
+      this.draw();
+    } else if (this.active) {
+      this.active = false;
+      this.finishRound();
+      this.stopLoop();
+      this.reset();
+    }
+  }
+  /** Stop for good without redrawing (the unlock fade): the last frame stays on screen, nothing runs or listens. */
+  freeze() {
+    if (this.destroyed || !this.active) return;
+    this.active = false;
+    this.frozen = true;
+    this.finishRound();
+    this.stopLoop();
+  }
+  setHighScore(score) {
+    this.best = Math.max(this.best, score);
+    this.game.setHighScore(this.best);
+    if (this.active) this.draw();
+  }
+  destroy() {
+    if (this.destroyed) return;
+    this.finishRound();
+    this.destroyed = true;
+    this.ac.abort();
+    this.stopLoop();
+    this.o.win.clearTimeout(this.pauseTimer);
+    this.pauseTimer = 0;
+    this.canvas.remove();
+  }
+  // ---- keyboard / focus ------------------------------------------------------------------
+  onKey(e, down) {
+    if (!this.active || e.isComposing) return;
+    const el = this.o.doc.activeElement;
+    if (isControl(el)) {
+      if (down && e.code === "Escape") {
+        el.blur();
+        this.o.root.focus({ preventScroll: true });
+        e.preventDefault();
+      }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (down && e.code === "Tab" && !e.shiftKey) {
+      if (this.o.focusField()) e.preventDefault();
+      return;
+    }
+    if (this.paused) return;
+    if (down && e.repeat && !this.game.running) {
+      if (this.game.key(e.code, false)) e.preventDefault();
+      return;
+    }
+    if (this.game.key(e.code, down)) e.preventDefault();
+    this.kick();
+  }
+  reportPointer(e) {
+    if (!this.game.pointer) return;
+    const r = this.canvas.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    this.game.pointer((e.clientX - r.left) / r.width * this.game.width, (e.clientY - r.top) / r.height * this.game.height);
+  }
+  onPointer(e) {
+    if (!this.active || this.paused || !this.game.pointer) return;
+    this.reportPointer(e);
+    this.kick();
+  }
+  /** Paused while a control has the keyboard or the window is not visible. */
+  syncPause() {
+    if (this.destroyed) return;
+    const paused = isControl(this.o.doc.activeElement) || this.o.doc.hidden;
+    if (paused === this.paused) return;
+    this.paused = paused;
+    if (paused) {
+      this.stopLoop();
+      this.game.releaseKeys?.();
+    }
+    if (this.active) this.draw();
+    if (!paused) this.kick();
+  }
+  /** Focus leaves one element a moment before it lands on the next: look after it has settled. */
+  syncPauseSoon() {
+    this.o.win.clearTimeout(this.pauseTimer);
+    this.pauseTimer = this.o.win.setTimeout(() => {
+      this.pauseTimer = 0;
+      this.syncPause();
+    }, 0);
+  }
+  // ---- loop ------------------------------------------------------------------------------
+  /** Redraw, and make sure the loop is running if the game needs time to pass. */
+  kick() {
+    if (this.destroyed || !this.active) return;
+    this.noteRoundEnd();
+    this.draw();
+    if (this.game.running && !this.paused && this.raf === 0) {
+      this.last = 0;
+      this.raf = this.o.win.requestAnimationFrame((t) => this.frame(t));
+    }
+  }
+  frame(t) {
+    this.raf = 0;
+    if (this.destroyed || !this.active || this.paused) return;
+    const dt = this.last === 0 ? 0 : Math.min(MAX_DT, (t - this.last) / 1e3);
+    this.last = t;
+    this.game.update(dt);
+    this.noteRoundEnd();
+    this.draw();
+    if (this.game.running) this.raf = this.o.win.requestAnimationFrame((n) => this.frame(n));
+  }
+  stopLoop() {
+    if (this.raf !== 0) this.o.win.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.last = 0;
+  }
+  draw() {
+    if (!this.ctx) return;
+    this.ctx.save();
+    this.game.draw(this.ctx, this.paused);
+    this.ctx.restore();
+  }
+  reset() {
+    this.wasRunning = false;
+    this.game.reset();
+    this.draw();
+  }
+  // ---- high score ------------------------------------------------------------------------
+  /** A round just ended: report a new best. */
+  noteRoundEnd() {
+    const running = this.game.running;
+    if (this.wasRunning && !running) this.finishRound();
+    this.wasRunning = running;
+  }
+  finishRound() {
+    if (this.game.score > this.best) {
+      this.best = this.game.score;
+      this.game.setHighScore(this.best);
+      this.o.onHighScore(this.best);
+    }
+  }
+};
+
+// src/games/index.ts
+function createGame(id) {
+  switch (id) {
+    case "snake":
+      return new SnakeGame();
+    case "breakout":
+      return new BreakoutGame();
+    case "runner":
+      return new RunnerGame();
+  }
 }
 
 // src/lockscreen.ts
@@ -2061,25 +3658,45 @@ var FONT_STACKS = {
 };
 var UNLOCK_MS = 520;
 var POINTER_KINDS = ["glow", "trail", "orbs"];
-var FX_COLORS = {
-  retro: ["#ff3df2", "#20e6ff", "#ffe94a", "#7cff4f"],
-  cartoon: ["#ffd93b", "#ff4d4d", "#2f9bff", "#ffffff"]
+function isFormControl(el) {
+  if (!el) return false;
+  if (el.tagName === "TEXTAREA" || el.tagName === "SELECT") return true;
+  return el.tagName === "INPUT" && !["checkbox", "radio", "button", "submit"].includes(el.type);
+}
+var PIXEL_LOCKS = {
+  win95: { o: "#000000", s: "#808080", f: "#c0c0c0", k: "#000000" },
+  "obsidian-runner": { o: "#d1d5db", s: "#6b7280", f: "#f3f4f6", k: "#374151" },
+  "gameboy-snake": { o: "#9bbc0f", s: "#5f7f1a", f: "#8bac0f", k: "#1b3220" }
 };
-var clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+var clamp2 = (n, min, max) => Math.min(max, Math.max(min, n));
 var rnd2 = (min, max) => min + Math.random() * (max - min);
+function loginStamp(d) {
+  const wd = d.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase();
+  const mon = d.toLocaleDateString("en-US", { month: "short" }).toLowerCase();
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${wd} ${mon} ${d.getDate()} ${hm}`;
+}
 function newId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 }
 var OverlayView = class {
-  constructor(doc, t, handlers) {
+  constructor(doc, t, handlers, keymap) {
     this.doc = doc;
     this.t = t;
     this.handlers = handlers;
+    this.keymap = keymap;
     this.inerted = /* @__PURE__ */ new Set();
+    this.scopePushed = false;
     this.deniedTimer = 0;
     this.fx = null;
     this.theme = "default";
-    this.lastParts = "";
+    this.unlockLabel = "";
+    this.recoveryOn = false;
+    this.baseTitle = "";
+    this.unlockedTitle = "";
+    this.host = null;
+    // the running offline game of a game theme, if any
+    this.gameId = null;
     this.imageUrl = null;
     this.imageLoaded = false;
     this.imageAutoDim = 0;
@@ -2130,21 +3747,30 @@ var OverlayView = class {
     const button = this.button = el("button", "vault-lock-button mod-cta");
     button.type = "submit";
     button.textContent = t.unlock;
-    const revealHint = el("div", "vault-lock-reveal-hint");
-    revealHint.setAttribute("aria-hidden", "true");
-    const revealText = el("span", "vault-lock-reveal-text");
-    revealText.textContent = t.pressAnyKey;
-    revealHint.append(revealText);
-    form.append(input, button, revealHint);
+    this.unlockLabel = t.unlock;
+    this.baseTitle = t.lockedTitle;
+    this.unlockedTitle = t.unlocked;
+    const prompt = el("span", "vault-lock-prompt");
+    prompt.setAttribute("aria-hidden", "true");
+    prompt.textContent = "$ password:";
+    form.append(prompt, input, button);
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      handlers.submit(input.value);
+      handlers.submit(input.value, this.recoveryOn ? "recovery" : "password");
     });
     const message = this.message = el("div", "vault-lock-message");
     message.setAttribute("aria-live", "polite");
     this.hint = el("div", "vault-lock-hint");
     this.hint.textContent = t.previewClose;
-    card.append(icon, title, form, message, this.hint);
+    const forgot = this.forgotBtn = el("button", "vault-lock-forgot");
+    forgot.type = "button";
+    forgot.textContent = t.forgot;
+    forgot.addEventListener("click", () => {
+      this.setRecovery(!this.recoveryOn);
+      input.value = "";
+      input.focus({ preventScroll: true });
+    });
+    card.append(icon, title, form, forgot, message, this.hint);
     this.todosEl = el("div", "vault-lock-todos");
     this.todoList = el("div", "vault-lock-todo-list");
     const addForm = el("form", "vault-lock-todo-add");
@@ -2168,22 +3794,64 @@ var OverlayView = class {
       handlers.addTodo(text);
     });
     this.todosEl.append(this.todoList, addForm);
-    stage.append(this.clockEl, card, this.todosEl);
-    root.append(this.bg, this.anim, stage);
+    const chrome = el("div", "vault-lock-chrome");
+    chrome.setAttribute("aria-hidden", "true");
+    const dots = el("span", "vl-dots");
+    for (let n = 0; n < 3; n++) dots.append(el("i", "vl-dot"));
+    const chromeTitle = this.chromeTitleEl = el("span", "vl-chrome-title");
+    const winBtns = el("span", "vl-winbtns");
+    for (const k of ["min", "max", "close"]) winBtns.append(el("i", `vl-winbtn vl-wb-${k}`));
+    chrome.append(dots, chromeTitle, winBtns);
+    const log = el("div", "vault-lock-log");
+    log.setAttribute("aria-hidden", "true");
+    this.loginEl = el("div", "vl-log-line");
+    const l2 = el("div", "vl-log-line");
+    l2.textContent = "[vault] status: locked";
+    const l3 = el("div", "vl-log-line");
+    l3.textContent = "[system] lockscape ready";
+    log.append(this.loginEl, l2, l3);
+    this.gameEl = el("div", "vault-lock-game");
+    const hint = el("div", "vault-lock-cover-hint");
+    hint.textContent = t.hideHint;
+    stage.append(chrome, this.clockEl, log, this.gameEl, card, hint, this.todosEl);
+    const drag = el("div", "vault-lock-drag");
+    drag.setAttribute("aria-hidden", "true");
+    this.desktopEl = el("div", "vault-lock-desktop");
+    this.desktopEl.setAttribute("aria-hidden", "true");
+    root.append(this.bg, this.anim, this.desktopEl, stage, drag);
     root.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && root.classList.contains("is-preview")) handlers.closePreview();
+      if (root.classList.contains("is-manual") ? ["Escape", "Enter", " "].includes(e.key) : e.key === "Escape" && root.classList.contains("is-preview")) handlers.closePreview();
       e.stopPropagation();
-      if (root.classList.contains("hover-reveal") && !root.classList.contains("is-preview") && !root.classList.contains("is-cover") && doc.activeElement !== input && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (root.classList.contains("hover-reveal") && !root.classList.contains("is-preview") && !root.classList.contains("is-cover") && doc.activeElement !== input && !isFormControl(doc.activeElement) && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         input.focus({ preventScroll: true });
       }
     });
+    this.keyScope = new import_obsidian2.Scope();
+    this.keyScope.register(null, null, (e) => {
+      if (this.root.contains(e.target)) return void 0;
+      this.root.focus({ preventScroll: true });
+      return false;
+    });
+    root.addEventListener("focusout", (e) => {
+      const to = e.relatedTarget;
+      if (to && root.contains(to)) return;
+      this.win.setTimeout(() => {
+        if (root.isConnected && doc.hasFocus() && !root.contains(doc.activeElement)) root.focus({ preventScroll: true });
+      }, 0);
+    });
+    this.onWinFocus = () => {
+      this.pushKeyScope();
+      this.win.setTimeout(() => this.pushKeyScope(), 0);
+    };
+    this.win.addEventListener("focus", this.onWinFocus);
     card.addEventListener("pointerdown", (e) => {
       if (e.pointerType !== "touch" || !root.classList.contains("hover-reveal")) return;
       if (!e.target.closest(".vault-lock-form")) input.focus({ preventScroll: true });
     });
     root.addEventListener("click", (e) => {
-      if (!root.classList.contains("is-preview")) return;
-      if (e.composedPath().includes(this.todosEl)) return;
+      if (!root.classList.contains("is-preview") && !root.classList.contains("is-manual")) return;
+      const path = e.composedPath();
+      if (path.includes(this.todosEl) || path.includes(this.gameEl)) return;
       handlers.closePreview();
     });
     const vv = this.win.visualViewport;
@@ -2210,40 +3878,73 @@ var OverlayView = class {
     this.observer = new MutationObserver(() => this.enforce());
   }
   attach() {
-    const body = this.doc.body;
-    if (!this.root.isConnected) body.append(this.root);
+    const body2 = this.doc.body;
+    if (!this.root.isConnected) body2.append(this.root);
     this.enforce();
-    this.observer.observe(body, { childList: true });
+    this.pushKeyScope();
+    this.observer.observe(body2, { childList: true });
     this.onViewport?.();
   }
   enforce() {
-    const body = this.doc.body;
-    if (!this.root.isConnected) body.append(this.root);
-    for (const child of Array.from(body.children)) {
+    const body2 = this.doc.body;
+    if (!this.root.isConnected) body2.append(this.root);
+    let added = false;
+    for (const child of Array.from(body2.children)) {
       if (child === this.root || this.inerted.has(child)) continue;
+      added = true;
       if (child.inert) continue;
       child.inert = true;
       this.inerted.add(child);
     }
+    if (added) this.pushKeyScope();
+  }
+  /** Make our scope the top of this window's scope stack. Does nothing for a window Obsidian does not consider active. */
+  pushKeyScope() {
+    if (!this.root.isConnected || this.win !== activeWindow) return;
+    if (this.scopePushed) this.keymap.popScope(this.keyScope);
+    this.keymap.pushScope(this.keyScope);
+    this.scopePushed = true;
+  }
+  popKeyScope() {
+    if (!this.scopePushed) return;
+    this.scopePushed = false;
+    this.keymap.popScope(this.keyScope);
+  }
+  /** The padlock: pixel art for the themes that have it, the icon set's line icon otherwise. */
+  drawIcon(open) {
+    const pixel = PIXEL_LOCKS[this.theme];
+    if (pixel) {
+      this.iconEl.replaceChildren(pixelLock(this.doc, open, pixel));
+      return;
+    }
+    (0, import_obsidian2.setIcon)(this.iconEl, open ? "lock-open" : "lock");
+    if (open && !this.iconEl.querySelector("svg")) (0, import_obsidian2.setIcon)(this.iconEl, "unlock");
+  }
+  /** Undo setUnlocking() when the screen is locked again before it went away. */
+  cancelUnlocking() {
+    this.root.classList.remove("is-unlocking");
+    this.titleEl.textContent = this.baseTitle;
+    this.drawIcon(false);
+    this.setBusy(false);
   }
   /** Success feedback: the padlock opens and the text says so; the caller removes the overlay shortly after. */
   setUnlocking() {
     this.root.classList.add("is-unlocking");
+    this.host?.freeze();
     this.input.disabled = true;
     this.button.disabled = true;
-    (0, import_obsidian2.setIcon)(this.iconEl, "lock-open");
-    if (!this.iconEl.querySelector("svg")) (0, import_obsidian2.setIcon)(this.iconEl, "unlock");
-    this.titleEl.textContent = this.t.unlocked;
+    this.drawIcon(true);
+    this.titleEl.textContent = this.unlockedTitle;
     this.button.textContent = "\u2713";
   }
   /** Wrong password: the card shakes once. */
   setDenied() {
     const r = this.root;
-    r.classList.remove("is-denied");
+    r.classList.remove("is-denied", "is-error");
     void r.offsetWidth;
-    r.classList.add("is-denied");
+    r.classList.add("is-denied", "is-error");
     this.win.clearTimeout(this.deniedTimer);
-    this.deniedTimer = this.win.setTimeout(() => r.classList.remove("is-denied"), 500);
+    this.deniedTimer = this.win.setTimeout(() => r.classList.remove("is-denied", "is-error"), 350);
   }
   reducedMotion() {
     try {
@@ -2254,12 +3955,14 @@ var OverlayView = class {
   }
   detach() {
     this.win.clearTimeout(this.deniedTimer);
-    this.root.classList.remove("is-denied", "is-unlocking");
-    if (this.iconEl.querySelector("svg") && this.root.isConnected) (0, import_obsidian2.setIcon)(this.iconEl, "lock");
+    this.root.classList.remove("is-denied", "is-error", "is-unlocking");
+    if (this.iconEl.querySelector("svg") && this.root.isConnected) this.drawIcon(false);
     this.fx?.destroy();
     this.fx = null;
+    this.disposeGame();
     this.clearVideo();
     this.observer.disconnect();
+    this.popKeyScope();
     for (const el of this.inerted) el.inert = false;
     this.inerted.clear();
     this.root.remove();
@@ -2272,6 +3975,7 @@ var OverlayView = class {
   destroy() {
     this.detach();
     this.slotObserver?.disconnect();
+    this.win.removeEventListener("focus", this.onWinFocus);
     this.doc.removeEventListener("visibilitychange", this.onVis);
     const vv = this.win.visualViewport;
     if (vv && this.onViewport) {
@@ -2279,13 +3983,73 @@ var OverlayView = class {
       vv.removeEventListener("scroll", this.onViewport);
     }
   }
-  setMode(mode) {
+  /** Switch the field between password entry and recovery-key entry ("Forgot your password?"). */
+  setRecovery(on) {
+    this.recoveryOn = on;
+    this.root.classList.toggle("is-recovery", on);
+    this.refreshLabels();
+  }
+  /** Placeholder, accessible name, button text and link text for the current entry kind. Themes may reword the password ones. */
+  refreshLabels() {
+    const busy = this.root.classList.contains("is-busy") || this.root.classList.contains("is-unlocking");
+    if (this.recoveryOn) {
+      this.input.placeholder = this.t.recoverPlaceholder;
+      this.input.setAttribute("aria-label", this.t.recoverPlaceholder);
+      this.input.autocapitalize = "characters";
+      if (!busy) this.button.textContent = this.t.recoverUnlock;
+      this.forgotBtn.textContent = this.t.backToPassword;
+    } else {
+      this.input.setAttribute("aria-label", this.t.placeholder);
+      this.input.autocapitalize = "off";
+      if (!busy) this.button.textContent = this.unlockLabel;
+      this.forgotBtn.textContent = this.t.forgot;
+      const text = THEME_TEXT[this.theme];
+      this.input.placeholder = text.placeholder === "none" ? " " : text.placeholder === "english" ? "password" : this.t.placeholder;
+    }
+  }
+  setMode(mode, manual = false) {
     const cover = mode === "cover";
     const preview = mode === "preview";
+    this.root.classList.toggle("is-manual", cover && manual);
     this.root.classList.toggle("is-cover", cover);
     this.root.classList.toggle("is-preview", preview);
     this.input.disabled = cover || preview;
     this.button.disabled = cover || preview;
+    this.host?.setActive(mode === "locked" || preview);
+  }
+  /** Another window's game set a new best: this window's game shows it too. */
+  setHighScore(game, score) {
+    if (this.gameId === game) this.host?.setHighScore(score);
+  }
+  /** Start the game of a game theme, stop and remove the previous one when the theme changed. */
+  syncGame(a) {
+    const id = gameOf(a.theme);
+    if (id === this.gameId) {
+      if (id) this.host?.setHighScore(a.highScores[id]);
+      return;
+    }
+    this.disposeGame();
+    if (!id) return;
+    this.gameId = id;
+    this.host = new GameHost(createGame(id), {
+      doc: this.doc,
+      win: this.win,
+      mount: this.gameEl,
+      root: this.root,
+      highScore: a.highScores[id],
+      onHighScore: (score) => this.handlers.highScore(id, score),
+      focusField: () => {
+        if (this.input.disabled) return false;
+        this.input.focus({ preventScroll: true });
+        return this.doc.activeElement === this.input;
+      }
+    });
+  }
+  disposeGame() {
+    this.host?.destroy();
+    this.host = null;
+    this.gameId = null;
+    this.gameEl.replaceChildren();
   }
   /** Apply the cosmetic settings: background, animation, text, clock, layout and widgets. */
   applyAppearance(a, todos) {
@@ -2293,9 +4057,24 @@ var OverlayView = class {
     this.setVideo(a.videoUrl);
     const r = this.root;
     this.theme = a.theme;
-    r.classList.toggle("vl-theme-retro", a.theme === "retro");
-    r.classList.toggle("vl-theme-cartoon", a.theme === "cartoon");
-    r.classList.toggle("hover-reveal", a.hoverReveal);
+    const game = gameOf(a.theme);
+    const text = THEME_TEXT[a.theme];
+    r.dataset.theme = a.theme;
+    r.classList.toggle("is-game", game !== null);
+    this.syncGame(a);
+    if (a.theme === "win95") {
+      if (this.desktopEl.childElementCount === 0) buildDesktop(this.doc, this.desktopEl);
+    } else if (this.desktopEl.childElementCount > 0) this.desktopEl.replaceChildren();
+    r.classList.toggle("hover-reveal", a.hoverReveal && game === null);
+    this.unlockLabel = text.unlock ?? this.t.unlock;
+    this.unlockedTitle = text.unlocked ?? this.t.unlocked;
+    this.baseTitle = text.title ?? this.t.lockedTitle;
+    if (!this.root.classList.contains("is-unlocking")) this.drawIcon(false);
+    this.input.placeholder = text.placeholder === "none" ? " " : text.placeholder === "english" ? "password" : this.t.placeholder;
+    this.chromeTitleEl.textContent = a.theme === "win95" ? "Obsidian" : a.theme === "terminal" ? "obsidian \u2014 zsh" : "";
+    r.classList.toggle("has-recovery", a.hasRecovery);
+    if (!a.hasRecovery && this.recoveryOn) this.setRecovery(false);
+    this.refreshLabels();
     r.classList.toggle("title-auto", a.titleMode === "auto");
     r.classList.toggle("title-hide", a.titleMode === "hide");
     r.classList.toggle("custom-title", a.customTitle !== "");
@@ -2305,20 +4084,22 @@ var OverlayView = class {
     r.classList.toggle("shape-round", a.fieldShape === "rounded");
     r.classList.toggle("shape-pill", a.fieldShape === "pill");
     r.classList.toggle("shape-square", a.fieldShape === "square");
-    this.titleEl.textContent = a.customTitle || this.t.lockedTitle;
+    this.titleEl.textContent = a.customTitle || this.baseTitle;
     const setVar = (name, value) => value ? r.style.setProperty(name, value) : r.style.removeProperty(name);
     setVar("--vl-text", a.textColor);
     setVar("--vl-accent", a.accentColor);
-    r.style.setProperty("--vl-clock-scale", String(clamp(a.clockScale, 60, 160) / 100));
+    const accentRgb = a.accentColor ? resolveColor(this.doc, a.accentColor) : null;
+    setVar("--vl-on-accent", accentRgb ? inkFor(accentRgb) : "");
+    r.style.setProperty("--vl-clock-scale", String(clamp2(a.clockScale, 60, 160) / 100));
     if (a.clockFont === "auto") {
       r.style.removeProperty("--vl-clock-weight");
       r.style.removeProperty("--vl-clock-font");
     } else {
-      r.style.setProperty("--vl-clock-weight", String(clamp(a.clockWeight, 100, 700)));
+      r.style.setProperty("--vl-clock-weight", String(clamp2(a.clockWeight, 100, 700)));
       r.style.setProperty("--vl-clock-font", FONT_STACKS[a.clockFont]);
     }
-    r.style.setProperty("--vl-blur", `${clamp(a.blur, 0, 20)}px`);
-    this.userDim = clamp(a.dim, 0, 80) / 100;
+    r.style.setProperty("--vl-blur", `${clamp2(a.blur, 0, 20)}px`);
+    this.userDim = clamp2(a.dim, 0, 80) / 100;
     this.updateMedia();
     this.buildAnimation(a);
     this.clockEl.classList.toggle("is-off", !a.showClock);
@@ -2338,7 +4119,7 @@ var OverlayView = class {
       this.timeFmt = new Intl.DateTimeFormat(void 0, timeOpts);
       this.dateFmt = new Intl.DateTimeFormat(void 0, dateOpts);
     }
-    this.lastTime = this.lastDate = this.lastParts = "";
+    this.lastTime = this.lastDate = "";
     this.updateClock(/* @__PURE__ */ new Date());
     this.todosEl.classList.toggle("is-off", !a.showTodos);
     this.stage.classList.toggle("has-todos", a.showTodos);
@@ -2365,7 +4146,7 @@ var OverlayView = class {
   setVideo(url) {
     const reduced = this.reducedMotion();
     if (url === this.videoUrl && this.video) {
-      if (!reduced) void this.video.play().catch(() => void 0);
+      if (!reduced && !this.doc.hidden) void this.video.play().catch(() => void 0);
       return;
     }
     this.clearVideo();
@@ -2379,7 +4160,7 @@ var OverlayView = class {
     v.muted = true;
     v.loop = true;
     v.playsInline = true;
-    v.autoplay = !reduced;
+    v.autoplay = !reduced && !this.doc.hidden;
     v.preload = "auto";
     v.controls = false;
     v.disablePictureInPicture = true;
@@ -2389,7 +4170,7 @@ var OverlayView = class {
       this.videoAutoDim = this.legibilityDim(v);
       this.videoLoaded = true;
       this.updateMedia();
-      if (!reduced) void v.play().catch(() => void 0);
+      if (!reduced && !this.doc.hidden) void v.play().catch(() => void 0);
     });
     v.src = url;
     this.bg.prepend(v);
@@ -2443,8 +4224,8 @@ var OverlayView = class {
     const colors = palette(base);
     if (POINTER_KINDS.includes(a.animation)) {
       if (!this.reducedMotion()) {
-        const palette4 = a.theme === "default" ? [...colors, colors[0]] : FX_COLORS[a.theme];
-        this.fx = new PointerFx(this.doc, this.win, this.anim, a.animation, a.theme, palette4);
+        const palette4 = [...colors, colors[0]];
+        this.fx = new PointerFx(this.doc, this.win, this.anim, a.animation, palette4);
       }
       return;
     }
@@ -2455,94 +4236,86 @@ var OverlayView = class {
       for (const [k, v] of Object.entries(vars)) e.style.setProperty(k, v);
       this.anim.append(e);
     };
-    const f = (n) => n.toFixed(1);
+    const f2 = (n) => n.toFixed(1);
     if (a.animation === "aurora") {
       for (let i = 0; i < 4; i++) {
         add("b", {
           "--c": colors[i % 3],
-          "--x": `${f(rnd2(5, 95))}%`,
-          "--y": `${f(rnd2(5, 95))}%`,
-          "--s": `${f(rnd2(60, 90))}vmax`,
-          "--dx": `${f(rnd2(-24, 24))}vmax`,
-          "--dy": `${f(rnd2(-18, 18))}vmax`,
-          "--d": `${f(rnd2(22, 38))}s`,
-          "--delay": `-${f(rnd2(0, 30))}s`
+          "--x": `${f2(rnd2(5, 95))}%`,
+          "--y": `${f2(rnd2(5, 95))}%`,
+          "--s": `${f2(rnd2(60, 90))}vmax`,
+          "--dx": `${f2(rnd2(-24, 24))}vmax`,
+          "--dy": `${f2(rnd2(-18, 18))}vmax`,
+          "--d": `${f2(rnd2(22, 38))}s`,
+          "--delay": `-${f2(rnd2(0, 30))}s`
         });
       }
     } else if (a.animation === "fireflies") {
-      const n = clamp(Math.round(area / 52e3), 10, 30);
+      const n = clamp2(Math.round(area / 52e3), 10, 30);
       for (let i = 0; i < n; i++) {
         const s = rnd2(3, 7);
         add("i", {
           "--c": colors[i % 3],
-          "--x": `${f(rnd2(2, 98))}%`,
-          "--y": `${f(rnd2(4, 96))}%`,
-          "--s": `${f(s)}px`,
-          "--x1": `${f(rnd2(-16, 16))}vmin`,
-          "--y1": `${f(rnd2(-16, 16))}vmin`,
-          "--x2": `${f(rnd2(-20, 20))}vmin`,
-          "--y2": `${f(rnd2(-20, 20))}vmin`,
-          "--x3": `${f(rnd2(-16, 16))}vmin`,
-          "--y3": `${f(rnd2(-16, 16))}vmin`,
-          "--d": `${f(rnd2(18, 34))}s`,
-          "--p": `${f(rnd2(2.8, 6))}s`,
-          "--delay": `-${f(rnd2(0, 30))}s`
+          "--x": `${f2(rnd2(2, 98))}%`,
+          "--y": `${f2(rnd2(4, 96))}%`,
+          "--s": `${f2(s)}px`,
+          "--x1": `${f2(rnd2(-16, 16))}vmin`,
+          "--y1": `${f2(rnd2(-16, 16))}vmin`,
+          "--x2": `${f2(rnd2(-20, 20))}vmin`,
+          "--y2": `${f2(rnd2(-20, 20))}vmin`,
+          "--x3": `${f2(rnd2(-16, 16))}vmin`,
+          "--y3": `${f2(rnd2(-16, 16))}vmin`,
+          "--d": `${f2(rnd2(18, 34))}s`,
+          "--p": `${f2(rnd2(2.8, 6))}s`,
+          "--delay": `-${f2(rnd2(0, 30))}s`
         });
       }
     } else if (a.animation === "snow") {
-      const n = clamp(Math.round(area / 36e3), 14, 48);
+      const n = clamp2(Math.round(area / 36e3), 14, 48);
       for (let i = 0; i < n; i++) {
         add("i", {
-          "--x": `${f(rnd2(0, 100))}%`,
-          "--s": `${f(rnd2(2, 6))}px`,
-          "--o": f(rnd2(0.35, 0.9)),
-          "--sway": `${f(rnd2(-40, 40))}px`,
-          "--d": `${f(rnd2(9, 20))}s`,
-          "--delay": `-${f(rnd2(0, 20))}s`
+          "--x": `${f2(rnd2(0, 100))}%`,
+          "--s": `${f2(rnd2(2, 6))}px`,
+          "--o": f2(rnd2(0.35, 0.9)),
+          "--sway": `${f2(rnd2(-40, 40))}px`,
+          "--d": `${f2(rnd2(9, 20))}s`,
+          "--delay": `-${f2(rnd2(0, 20))}s`
         });
       }
     }
+  }
+  /** The time as text, or (Windows 95) digits and colons as pixel art with the rest, such as "오후", left as text. */
+  drawTime(time) {
+    if (this.theme !== "win95") {
+      this.timeEl.textContent = time;
+      this.timeEl.removeAttribute("role");
+      this.timeEl.removeAttribute("aria-label");
+      return;
+    }
+    const parts = runsOf(time).map((run) => {
+      if (run.pixel) return pixelSvg(this.doc, run.text);
+      const span = this.doc.createElement("span");
+      span.className = "vl-px-text";
+      span.textContent = run.text;
+      return span;
+    });
+    this.timeEl.replaceChildren(...parts);
+    this.timeEl.setAttribute("role", "img");
+    this.timeEl.setAttribute("aria-label", time);
   }
   updateClock(now) {
     if (!this.timeFmt || !this.dateFmt) return;
     const time = this.timeFmt.format(now);
     if (time !== this.lastTime) {
       this.lastTime = time;
-      if (this.theme === "retro") this.renderSegmentClock(now);
-      else this.timeEl.textContent = time;
+      this.drawTime(time);
+      if (this.theme === "terminal") this.loginEl.textContent = `last login: ${loginStamp(now)}`;
     }
     const date = this.dateFmt.format(now);
     if (date !== this.lastDate) {
       this.lastDate = date;
       this.dateEl.textContent = date;
     }
-  }
-  /** Retro theme: digits as seven-segment SVGs, the colon blinks, am/pm (any language) stays small text. */
-  renderSegmentClock(now) {
-    const parts = this.timeFmt?.formatToParts(now) ?? [];
-    const key = parts.map((p) => p.type + p.value).join("|");
-    if (key === this.lastParts) return;
-    this.lastParts = key;
-    const doc = this.doc;
-    const nodes = [];
-    for (const part of parts) {
-      if (part.type === "hour" || part.type === "minute" || part.type === "second") {
-        for (const ch of part.value) nodes.push(digitSvg(doc, ch));
-      } else if (part.type === "dayPeriod") {
-        const span = doc.createElement("span");
-        span.className = "vault-lock-period";
-        span.textContent = part.value;
-        nodes.push(span);
-      } else if (part.type === "literal" && part.value.includes(":")) {
-        const colon = doc.createElement("span");
-        colon.className = "vault-lock-colon";
-        colon.setAttribute("aria-hidden", "true");
-        nodes.push(colon);
-      }
-    }
-    this.timeEl.replaceChildren(...nodes);
-    this.timeEl.setAttribute("aria-label", this.lastTime);
-    this.timeEl.setAttribute("role", "text");
   }
   renderTodos(todos) {
     const doc = this.doc;
@@ -2579,7 +4352,7 @@ var OverlayView = class {
     this.root.classList.toggle("is-busy", busy);
     this.input.disabled = busy;
     this.button.disabled = busy;
-    this.button.textContent = busy ? this.t.checking : this.t.unlock;
+    this.button.textContent = busy ? this.t.checking : this.recoveryOn ? this.t.recoverUnlock : this.unlockLabel;
   }
   focus() {
     this.input.focus({ preventScroll: true });
@@ -2593,11 +4366,16 @@ var LockScreen = class {
     this.t = t;
     this.hooks = hooks;
     this.mode = "off";
+    /** The cover was asked for ("hide screen" command), not caused by leaving the app: a click or Esc takes it away, no password. */
+    this.manual = false;
     this.views = /* @__PURE__ */ new Map();
     this.countdown = null;
     this.clockTimer = null;
     this.busy = false;
     this.unlockTimer = 0;
+    this.unlocking = false;
+    /** Where the keyboard focus was in each window before the overlay took over; given back when it goes away. */
+    this.savedFocus = /* @__PURE__ */ new Map();
   }
   get isLocked() {
     return this.mode === "locked";
@@ -2605,26 +4383,54 @@ var LockScreen = class {
   get isCovering() {
     return this.mode === "cover";
   }
+  get isManualCover() {
+    return this.mode === "cover" && this.manual;
+  }
   get isPreviewing() {
     return this.mode === "preview";
   }
   /** Hide content immediately without asking for a password (grace period running). */
   cover() {
     if (this.mode === "locked") return;
+    this.rememberFocus();
     this.mode = "cover";
     this.render();
   }
+  /** Hide the screen at once (before sharing it, say). No password: a click or Esc shows it again. */
+  hideScreen() {
+    if (this.mode === "locked" || this.mode === "preview") return;
+    this.rememberFocus();
+    this.manual = true;
+    this.mode = "cover";
+    this.render();
+    window.setTimeout(() => {
+      if (!this.isManualCover) return;
+      for (const v of this.views.values()) if (v.doc.hasFocus()) v.focusRoot();
+    }, 50);
+  }
   lock() {
+    this.manual = false;
+    if (this.unlocking) {
+      window.clearTimeout(this.unlockTimer);
+      this.unlocking = false;
+      this.busy = false;
+      this.eachView((v) => v.cancelUnlocking());
+    }
+    this.rememberFocus();
     this.mode = "locked";
+    this.notifyLock();
     this.notifyWindow(true);
     this.render();
+    this.eachView((v) => v.setRecovery(false));
     this.startCountdown();
-    const preferInput = !this.hooks.getAppearance().hoverReveal;
+    const ap = this.hooks.getAppearance();
+    const preferInput = !ap.hoverReveal && gameOf(ap.theme) === null;
     window.setTimeout(() => this.focusActive(preferInput), 50);
   }
   /** Show the lock screen without locking, so appearance settings can be judged. Click/Esc closes it. */
   preview() {
     if (this.mode === "locked") return;
+    this.rememberFocus();
     this.mode = "preview";
     this.notifyWindow(true);
     this.render();
@@ -2634,22 +4440,48 @@ var LockScreen = class {
     }, 50);
   }
   release() {
+    this.manual = false;
     window.clearTimeout(this.unlockTimer);
+    this.unlocking = false;
     this.mode = "off";
     this.stopCountdown();
     this.stopClock();
     for (const view of this.views.values()) view.detach();
     this.notifyWindow(false);
+    this.restoreFocus();
+  }
+  /** Remember the focused element of every window, but only when the overlay is not already up (cover -> locked keeps the first). */
+  rememberFocus() {
+    if (this.mode !== "off") return;
+    this.savedFocus.clear();
+    for (const doc of this.hooks.getDocuments()) {
+      const el = doc.activeElement;
+      if (el && el !== doc.body && el !== doc.documentElement) this.savedFocus.set(doc, el);
+    }
+  }
+  restoreFocus() {
+    for (const [doc, el] of this.savedFocus) {
+      if (el.isConnected && typeof el.focus === "function" && doc.hasFocus()) el.focus({ preventScroll: true });
+    }
+    this.savedFocus.clear();
   }
   destroy() {
     window.clearTimeout(this.unlockTimer);
     const wasShowing = this.mode !== "off";
+    this.savedFocus.clear();
     this.mode = "off";
     if (wasShowing) this.notifyWindow(false);
     this.stopCountdown();
     this.stopClock();
     for (const view of this.views.values()) view.destroy();
     this.views.clear();
+  }
+  /** Closing the owner's open dialogs is best effort; the lock screen must come up even if it throws. */
+  notifyLock() {
+    try {
+      this.hooks.onLock();
+    } catch {
+    }
   }
   /**
    * Window shrinking is cosmetic. If it throws, the lock screen must still appear (fail closed),
@@ -2679,12 +4511,16 @@ var LockScreen = class {
       let view = this.views.get(doc);
       if (!view) {
         view = new OverlayView(doc, this.t, {
-          submit: (pw) => void this.handleSubmit(pw),
+          submit: (pw, kind) => void this.handleSubmit(pw, kind),
           closePreview: () => {
-            if (this.mode === "preview") this.release();
+            if (this.mode === "preview" || this.manual) this.release();
+          },
+          highScore: (game, score) => {
+            this.hooks.onHighScore(game, score);
+            this.eachView((v) => v.setHighScore(game, score));
           },
           addTodo: (text) => this.editTodos((list) => {
-            if (list.length < MAX_TODOS) list.push({ id: newId(), text: text.slice(0, MAX_TODO_LENGTH), done: false });
+            if (list.length < MAX_TODOS) list.push({ id: newId(), text: clipChars(text, MAX_TODO_LENGTH), done: false });
           }),
           toggleTodo: (id) => this.editTodos((list) => {
             const item = list.find((x) => x.id === id);
@@ -2694,12 +4530,12 @@ var LockScreen = class {
             const i = list.findIndex((x) => x.id === id);
             if (i >= 0) list.splice(i, 1);
           })
-        });
+        }, this.hooks.keymap);
         this.views.set(doc, view);
       }
       view.applyAppearance(appearance, todos);
       view.attach();
-      view.setMode(this.mode);
+      view.setMode(this.mode, this.manual);
     }
     this.startClock();
   }
@@ -2730,24 +4566,27 @@ var LockScreen = class {
     if (preferInput) view?.focus();
     else view?.focusRoot();
   }
-  async handleSubmit(password) {
+  async handleSubmit(password, kind) {
     if (this.busy || this.mode !== "locked") return;
+    if (password === "") return;
     this.busy = true;
     this.eachView((v) => v.setBusy(true));
     let result;
     try {
-      result = await this.hooks.submit(password);
+      result = await this.hooks.submit(password, kind);
     } catch {
       result = { ok: false, message: this.t.cryptoError };
     }
     if (result.ok) {
       this.stopCountdown();
+      this.unlocking = true;
       this.eachView((v) => v.setUnlocking());
       const wait = this.prefersReducedMotion() ? 0 : UNLOCK_MS;
       this.unlockTimer = window.setTimeout(() => {
+        this.unlocking = false;
         this.busy = false;
         this.release();
-        this.hooks.onUnlocked();
+        this.hooks.onUnlocked(kind);
       }, wait);
       return;
     }
@@ -2764,7 +4603,7 @@ var LockScreen = class {
   /** While the caller refuses attempts, show a live "try again in Ns" and disable input. */
   startCountdown() {
     this.stopCountdown();
-    const tick = () => {
+    const tick4 = () => {
       const left = Math.ceil((this.hooks.getRetryAt() - Date.now()) / 1e3);
       if (left > 0) {
         this.eachView((v) => {
@@ -2781,8 +4620,8 @@ var LockScreen = class {
       this.focusActive();
     };
     if (this.hooks.getRetryAt() > Date.now()) {
-      tick();
-      this.countdown = window.setInterval(tick, 1e3);
+      tick4();
+      this.countdown = window.setInterval(tick4, 1e3);
     }
   }
   stopCountdown() {
@@ -2809,13 +4648,17 @@ var BACKOFF_MAX_MS = 15 * 6e4;
 var DEFAULTS = {
   settingsVersion: 2,
   credential: null,
+  recovery: null,
   lockOnStartup: true,
   idleMinutes: 10,
   lockOnHide: true,
+  coverOnBlur: false,
+  lockOnSystemLock: true,
   graceSeconds: 30,
   failCount: 0,
   retryAt: 0,
   theme: "default",
+  highScores: emptyHighScores(),
   backgroundKind: "none",
   hasBackground: false,
   hasVideo: false,
@@ -2843,11 +4686,14 @@ var DEFAULTS = {
   accentColor: "",
   shrinkOnLock: false,
   lockWindowSize: "small",
-  savedWindow: null
+  savedWindow: null,
+  log: [],
+  lockedAtExit: false
 };
+var DEVICE_ONLY_KEY = "lockscape-device-only";
+var DEVICE_VALUES_KEY = "lockscape-device-values";
 var IDLE_CHOICES = [0, 1, 5, 10, 15, 30, 60];
 var GRACE_CHOICES = [0, 15, 30, 60, 300];
-var THEMES = ["default", "retro", "cartoon"];
 var ANIMATIONS = ["none", "aurora", "fireflies", "snow", "glow", "trail", "orbs"];
 var BACKGROUND_KINDS = ["none", "image", "video"];
 var POSITIONS = ["top", "center", "bottom"];
@@ -2896,7 +4742,7 @@ function cleanTodos(v) {
     if (typeof x !== "object" || x === null) continue;
     const r = x;
     if (typeof r.id !== "string" || typeof r.text !== "string" || r.id.length > 64) continue;
-    const text = r.text.trim().slice(0, MAX_TODO_LENGTH);
+    const text = clipChars(r.text.trim(), MAX_TODO_LENGTH);
     if (!text) continue;
     out.push({ id: r.id, text, done: r.done === true });
   }
@@ -2909,9 +4755,37 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
     this.t = getStrings();
     this.lastActivity = Date.now();
     this.hiddenAt = null;
+    /** Documents of popout windows, taken straight from `window-open`: the window has no leaf yet at that moment. */
+    this.popoutDocs = /* @__PURE__ */ new Set();
+    /** The open set/change/remove-password dialog, so it can be closed when the lock engages. */
+    this.passwordModal = null;
+    /** This device keeps its own auto-lock options (see devicesettings.ts). Stored in local storage, never synced. */
+    this.deviceOnly = false;
+    /** The shared (data.json) values of the device keys while `deviceOnly` is on, so saving never overwrites them. */
+    this.sharedDevice = {};
+    this.stopSystemLock = null;
+    this.watchedWindows = /* @__PURE__ */ new WeakSet();
   }
   get hasPassword() {
     return this.settings.credential !== null;
+  }
+  /** Persist whether the screen is locked, so quitting while locked cannot be used to get past the lock. */
+  rememberLocked(locked) {
+    if (this.settings.lockedAtExit === locked) return;
+    this.settings.lockedAtExit = locked;
+    void this.saveSettings();
+  }
+  /**
+   * Called when the lock engages. The Settings screen opens in its own window, which the overlay does not cover,
+   * and the password dialog opened from it lives there too: close both so nothing stays usable behind the lock.
+   */
+  closeOwnerDialogs() {
+    this.passwordModal?.close();
+    this.app.setting?.close?.();
+  }
+  /** The lock screen or the grace-period cover is up. Settings must not change then. */
+  get isLockActive() {
+    return this.lockScreen.isLocked || this.lockScreen.isCovering;
   }
   get pluginDir() {
     return this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
@@ -2933,8 +4807,8 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
     await this.loadSettings();
     this.t = getStrings();
     this.lockScreen = new LockScreen(this.t, {
-      submit: (pw) => this.attemptUnlock(pw),
-      getRetryAt: () => this.settings.retryAt,
+      submit: (pw, kind) => this.attemptUnlock(pw, kind),
+      getRetryAt: () => this.capRetryAt(),
       getDocuments: () => this.collectDocuments(),
       getAppearance: () => this.appearance(),
       getTodos: () => this.settings.todos,
@@ -2943,33 +4817,110 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
         void this.saveSettings();
       },
       onWindow: (active) => this.applyWindow(active),
-      onUnlocked: () => this.markActivity()
+      onHighScore: (game, score) => {
+        if (score <= this.settings.highScores[game]) return;
+        this.settings.highScores = { ...this.settings.highScores, [game]: Math.min(MAX_SCORE, Math.floor(score)) };
+        void this.saveSettings();
+      },
+      onUnlocked: (kind) => {
+        this.markActivity();
+        this.rememberLocked(false);
+        this.logEvent({ t: Date.now(), k: kind === "recovery" ? "recover" : "unlock" });
+        if (kind === "recovery") window.setTimeout(() => new PasswordModal(this.app, this, "reset", () => {
+        }).open(), 100);
+      },
+      onLock: () => {
+        this.rememberLocked(true);
+        this.closeOwnerDialogs();
+      },
+      keymap: this.app.keymap
     });
-    if (this.hasPassword && this.settings.lockOnStartup) this.lockScreen.lock();
+    if (this.hasPassword && (this.settings.lockOnStartup || this.settings.lockedAtExit)) this.lockWith("startup");
     else if (this.settings.savedWindow) this.applyWindow(false);
     this.addSettingTab(new VaultLockSettingTab(this.app, this));
     this.addCommand({ id: "lock-now", name: this.t.lockNow, callback: () => this.lockNow() });
+    this.addCommand({ id: "hide-screen", name: this.t.hideScreen, callback: () => this.lockScreen.hideScreen() });
     this.addRibbonIcon("lock", this.t.lockNow, () => this.lockNow());
     this.watchActivity(window);
+    this.app.workspace.onLayoutReady(() => {
+      for (const doc of this.collectDocuments()) if (doc.defaultView) this.watchActivity(doc.defaultView);
+    });
     this.registerEvent(
       this.app.workspace.on("window-open", (_w, win) => {
         this.watchActivity(win);
+        this.popoutDocs.add(win.document);
+        this.lockScreen.refresh();
+        window.setTimeout(() => this.lockScreen.refresh(), 150);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("window-close", (_w, win) => {
+        this.popoutDocs.delete(win.document);
         this.lockScreen.refresh();
       })
     );
-    this.registerEvent(this.app.workspace.on("window-close", () => this.lockScreen.refresh()));
     this.registerInterval(window.setInterval(() => this.checkIdle(), 5e3));
-    this.registerDomEvent(document, "visibilitychange", () => this.onVisibility());
+    this.registerDomEvent(window, "focus", () => this.checkIdle());
+    this.registerDomEvent(window, "pageshow", () => this.checkIdle());
+    this.syncSystemLock();
   }
   onunload() {
+    this.stopSystemLock?.();
     this.lockScreen?.destroy();
+  }
+  /** data.json changed on disk (sync from another device). Without this, our next save would overwrite it with stale values. */
+  async onExternalSettingsChange() {
+    const local = {
+      log: this.settings.log,
+      savedWindow: this.settings.savedWindow,
+      lockedAtExit: this.settings.lockedAtExit,
+      highScores: this.settings.highScores
+    };
+    await this.loadSettings();
+    this.settings.log = mergeLogs(local.log, this.settings.log);
+    this.settings.savedWindow = local.savedWindow;
+    this.settings.lockedAtExit = local.lockedAtExit;
+    this.settings.highScores = mergeHighScores(local.highScores, this.settings.highScores);
+    this.syncSystemLock();
+    this.lockScreen.refresh();
   }
   lockNow() {
     if (!this.hasPassword) {
       new import_obsidian3.Notice(this.t.noPassword);
       return;
     }
+    this.lockWith("manual");
+  }
+  /** Lock, and note why in the activity log (once: locking an already locked screen adds nothing). */
+  lockWith(reason) {
+    if (!this.lockScreen.isLocked) this.logEvent({ t: Date.now(), k: "lock", r: reason });
     this.lockScreen.lock();
+  }
+  /** Make a new recovery key, store its hash and return the key to show once. Null if the lock engaged meanwhile. */
+  async issueRecoveryKey() {
+    const key = generateRecoveryKey();
+    const credential = await createRecoveryCredential(key);
+    if (this.isLockActive || !this.hasPassword) return null;
+    this.settings.recovery = credential;
+    await this.saveSettings();
+    this.lockScreen.refresh();
+    return key;
+  }
+  logEvent(entry) {
+    this.settings.log = appendLog(this.settings.log, entry);
+    void this.saveSettings();
+  }
+  refreshSystemLock() {
+    this.syncSystemLock();
+  }
+  /** Lock when the OS locks the screen or goes to sleep (desktop, and only when the app exposes the power monitor). */
+  syncSystemLock() {
+    this.stopSystemLock?.();
+    this.stopSystemLock = null;
+    if (!import_obsidian3.Platform.isDesktopApp || !this.settings.lockOnSystemLock) return;
+    this.stopSystemLock = watchSystemLock(() => {
+      if (this.hasPassword && !this.lockScreen.isLocked) this.lockWith("system");
+    });
   }
   /** Show the lock screen without locking (works without a password set). */
   previewLock() {
@@ -2993,7 +4944,9 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
   appearance() {
     const s = this.settings;
     return {
+      hasRecovery: s.recovery !== null && s.credential !== null,
       theme: s.theme,
+      highScores: s.highScores,
       imageUrl: this.imageUrl,
       videoUrl: this.videoUrl,
       dim: s.dim,
@@ -3019,17 +4972,30 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
     };
   }
   // ---- unlock / rate limiting ---------------------------------------------------------
-  async attemptUnlock(password) {
+  /** The stored wait can only be longer than the maximum if the system clock moved backwards: cap it (and keep the cap). */
+  capRetryAt() {
+    const limit = Date.now() + BACKOFF_MAX_MS;
+    if (this.settings.retryAt > limit) {
+      this.settings.retryAt = limit;
+      void this.saveSettings();
+    }
+    return this.settings.retryAt;
+  }
+  /** Check the password, or the recovery key (`kind`). Both share one failure counter and one back-off. */
+  async attemptUnlock(password, kind = "password") {
+    this.capRetryAt();
     const now = Date.now();
-    const cred = this.settings.credential;
-    if (!cred) return { ok: true };
+    const cred = kind === "recovery" ? this.settings.recovery : this.settings.credential;
+    if (!this.settings.credential) return { ok: true };
+    if (!cred) return { ok: false, message: this.t.wrong };
     if (now < this.settings.retryAt) {
       return { ok: false, message: fmt(this.t.wait, Math.ceil((this.settings.retryAt - now) / 1e3)), retryAt: this.settings.retryAt };
     }
     if (!cryptoAvailable()) return { ok: false, message: this.t.cryptoError };
+    if (password === "") return { ok: false, message: this.t.wrong };
     let ok = false;
     try {
-      ok = await verifyPassword(password, cred);
+      ok = kind === "recovery" ? await verifyRecoveryKey(password, cred) : await verifyPassword(password, cred);
     } catch {
       return { ok: false, message: this.t.cryptoError };
     }
@@ -3040,6 +5006,7 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
       return { ok: true };
     }
     this.settings.failCount += 1;
+    this.settings.log = appendLog(this.settings.log, { t: Date.now(), k: "fail" });
     if (this.settings.failCount >= FREE_ATTEMPTS) {
       const wait = Math.min(BACKOFF_BASE_MS * 2 ** (this.settings.failCount - FREE_ATTEMPTS), BACKOFF_MAX_MS);
       this.settings.retryAt = Date.now() + wait;
@@ -3052,6 +5019,14 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
     this.lastActivity = Date.now();
   }
   watchActivity(win) {
+    if (this.watchedWindows.has(win)) return;
+    this.watchedWindows.add(win);
+    this.registerDomEvent(win.document, "visibilitychange", () => this.onVisibility());
+    for (const ev of ["blur", "focus"]) {
+      this.registerDomEvent(win, ev, () => {
+        if (this.settings.coverOnBlur) window.setTimeout(() => this.onVisibility(), 150);
+      });
+    }
     const bump = () => {
       if (!this.lockScreen.isLocked && !this.lockScreen.isCovering) this.markActivity();
     };
@@ -3075,14 +5050,17 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
   checkIdle() {
     const { idleMinutes } = this.settings;
     if (!this.hasPassword || idleMinutes <= 0 || this.lockScreen.isLocked) return;
-    if (Date.now() - this.lastActivity >= idleMinutes * 6e4) this.lockScreen.lock();
+    if (this.lockScreen.isCovering && !this.lockScreen.isManualCover) return;
+    if (Date.now() - this.lastActivity >= idleMinutes * 6e4) this.lockWith("idle");
   }
   onVisibility() {
     if (!this.hasPassword || !this.settings.lockOnHide) return;
-    if (document.visibilityState === "hidden") {
+    if (this.lockScreen.isManualCover) return;
+    if (this.isAway()) {
       if (this.lockScreen.isLocked) return;
+      if (this.hiddenAt !== null) return;
       this.hiddenAt = Date.now();
-      if (this.settings.graceSeconds === 0) this.lockScreen.lock();
+      if (this.settings.graceSeconds === 0) this.lockWith("left");
       else this.lockScreen.cover();
       return;
     }
@@ -3090,11 +5068,25 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
     const away = Date.now() - this.hiddenAt;
     this.hiddenAt = null;
     if (this.lockScreen.isLocked) return;
-    if (away >= this.settings.graceSeconds * 1e3) this.lockScreen.lock();
+    if (away >= this.settings.graceSeconds * 1e3) this.lockWith("left");
     else {
       this.lockScreen.release();
       this.markActivity();
     }
+  }
+  /**
+   * The app is out of sight: every window hidden or minimised, or (when the option is on) no window of the app has
+   * focus. Obsidian's Settings window counts as the app, so using it never covers the notes.
+   */
+  isAway() {
+    if (this.allWindowsHidden()) return true;
+    if (!this.settings.coverOnBlur) return false;
+    if (this.collectDocuments().some((d) => d.hasFocus())) return false;
+    const settingsDoc = this.app.setting?.modalEl?.ownerDocument;
+    return !(settingsDoc && settingsDoc !== document && settingsDoc.hasFocus());
+  }
+  allWindowsHidden() {
+    return this.collectDocuments().every((d) => d.visibilityState === "hidden");
   }
   collectDocuments() {
     const docs = /* @__PURE__ */ new Set([document]);
@@ -3102,21 +5094,36 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
       const doc = leaf.view?.containerEl?.ownerDocument;
       if (doc) docs.add(doc);
     });
+    for (const doc of this.popoutDocs) {
+      if (doc.defaultView && !doc.defaultView.closed) docs.add(doc);
+      else this.popoutDocs.delete(doc);
+    }
     return Array.from(docs);
   }
   // ---- settings I/O -------------------------------------------------------------------
   async loadSettings() {
-    const raw = await this.loadData() ?? {};
+    const stored = await this.loadData() ?? {};
+    this.sharedDevice = pickDevice(this.parseSettings(stored));
+    this.deviceOnly = this.app.loadLocalStorage(DEVICE_ONLY_KEY) === true;
+    const raw = this.deviceOnly ? applyDevice(stored, this.app.loadLocalStorage(DEVICE_VALUES_KEY)) : stored;
+    this.settings = this.parseSettings(raw);
+  }
+  parseSettings(raw) {
     const v1 = typeof raw.settingsVersion !== "number" || raw.settingsVersion < 2;
     const legacyFont = v1 && raw.clockFont === "sans" && (raw.clockWeight === void 0 || raw.clockWeight === 300);
     const legacyShape = v1 && raw.fieldShape === "rounded";
-    this.settings = {
+    return {
       settingsVersion: 2,
-      theme: oneOf(raw.theme, THEMES, DEFAULTS.theme),
+      theme: parseTheme(raw.theme),
+      // retro and cartoon (earlier versions) fall back to the default
+      highScores: parseHighScores(raw.highScores),
       credential: isCredential(raw.credential) ? raw.credential : null,
+      recovery: isCredential(raw.credential) && isCredential(raw.recovery) ? raw.recovery : null,
       lockOnStartup: bool(raw.lockOnStartup, DEFAULTS.lockOnStartup),
       idleMinutes: num(raw.idleMinutes, DEFAULTS.idleMinutes, 0, 24 * 60),
       lockOnHide: bool(raw.lockOnHide, DEFAULTS.lockOnHide),
+      coverOnBlur: bool(raw.coverOnBlur, DEFAULTS.coverOnBlur),
+      lockOnSystemLock: bool(raw.lockOnSystemLock, DEFAULTS.lockOnSystemLock),
       graceSeconds: num(raw.graceSeconds, DEFAULTS.graceSeconds, 0, 3600),
       failCount: num(raw.failCount, 0, 0, 1e3),
       retryAt: num(raw.retryAt, 0, 0, Number.MAX_SAFE_INTEGER),
@@ -3139,7 +5146,7 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
       todos: cleanTodos(raw.todos),
       hoverReveal: bool(raw.hoverReveal, DEFAULTS.hoverReveal),
       titleMode: oneOf(raw.titleMode, TITLE_MODES, DEFAULTS.titleMode),
-      customTitle: typeof raw.customTitle === "string" ? raw.customTitle.trim().slice(0, 60) : "",
+      customTitle: typeof raw.customTitle === "string" ? clipChars(raw.customTitle.trim(), 60) : "",
       showIcon: bool(raw.showIcon, DEFAULTS.showIcon),
       position: oneOf(raw.position, POSITIONS, DEFAULTS.position),
       fieldShape: legacyShape ? "auto" : oneOf(raw.fieldShape, FIELD_SHAPES, DEFAULTS.fieldShape),
@@ -3150,11 +5157,33 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
       accentColor: cleanHex(raw.accentColor),
       shrinkOnLock: bool(raw.shrinkOnLock, DEFAULTS.shrinkOnLock),
       lockWindowSize: oneOf(raw.lockWindowSize, WINDOW_SIZE_NAMES, DEFAULTS.lockWindowSize),
-      savedWindow: isSavedWindow(raw.savedWindow) ? raw.savedWindow : null
+      savedWindow: isSavedWindow(raw.savedWindow) ? raw.savedWindow : null,
+      log: parseLog(raw.log),
+      lockedAtExit: bool(raw.lockedAtExit, false)
     };
   }
   async saveSettings() {
-    await this.saveData(this.settings);
+    if (this.deviceOnly) {
+      this.app.saveLocalStorage(DEVICE_VALUES_KEY, pickDevice(this.settings));
+      await this.saveData({ ...this.settings, ...this.sharedDevice });
+    } else {
+      await this.saveData(this.settings);
+    }
+  }
+  /** Turn "separate settings on this device" on or off. Off goes back to the shared values. */
+  async setDeviceOnly(on) {
+    if (on === this.deviceOnly) return;
+    this.deviceOnly = on;
+    if (on) {
+      this.sharedDevice = pickDevice(this.settings);
+      this.app.saveLocalStorage(DEVICE_ONLY_KEY, true);
+    } else {
+      Object.assign(this.settings, this.sharedDevice);
+      this.app.saveLocalStorage(DEVICE_ONLY_KEY, null);
+      this.app.saveLocalStorage(DEVICE_VALUES_KEY, null);
+    }
+    await this.saveSettings();
+    this.syncSystemLock();
   }
 };
 var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
@@ -3175,6 +5204,9 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
       pw.addButton((b) => b.setButtonText(t.removePassword).setWarning().onClick(() => this.openModal("remove")));
     } else {
       pw.addButton((b) => b.setButtonText(t.setPassword).setCta().onClick(() => this.openModal("set")));
+    }
+    if (this.plugin.hasPassword) {
+      new import_obsidian3.Setting(containerEl).setName(t.recoveryRow).setDesc(s.recovery ? t.recoveryOn : t.recoveryOff).addButton((b) => b.setButtonText(s.recovery ? t.renewRecovery : t.makeRecovery).onClick(() => this.openModal("recovery")));
     }
     new import_obsidian3.Setting(containerEl).setName(t.lockOnStartup).addToggle(
       (c) => c.setValue(s.lockOnStartup).onChange(async (v) => {
@@ -3204,7 +5236,57 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
         await save();
       });
     });
+    new import_obsidian3.Setting(containerEl).setName(t.coverOnBlur).setDesc(t.coverOnBlurDesc).addToggle(
+      (c) => c.setValue(s.coverOnBlur).onChange(async (v) => {
+        s.coverOnBlur = v;
+        await save();
+      })
+    );
+    if (import_obsidian3.Platform.isDesktopApp) {
+      new import_obsidian3.Setting(containerEl).setName(t.lockOnSystemLock).setDesc(t.lockOnSystemLockDesc).addToggle(
+        (c) => c.setValue(s.lockOnSystemLock).onChange(async (v) => {
+          s.lockOnSystemLock = v;
+          await save();
+          this.plugin.refreshSystemLock();
+        })
+      );
+    }
+    new import_obsidian3.Setting(containerEl).setName(t.deviceOnly).setDesc(t.deviceOnlyDesc).addToggle(
+      (c) => c.setValue(this.plugin.deviceOnly).onChange(async (v) => {
+        await this.plugin.setDeviceOnly(v);
+        this.display();
+      })
+    );
     this.displayAppearance(containerEl, t, s, save);
+    this.displayLog(containerEl, t);
+  }
+  displayLog(containerEl, t) {
+    const s = this.plugin.settings;
+    new import_obsidian3.Setting(containerEl).setName(t.logTitle).setHeading();
+    const row = new import_obsidian3.Setting(containerEl).setDesc(t.logDesc);
+    row.addButton(
+      (b) => b.setButtonText(t.logClear).onClick(async () => {
+        s.log = [];
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    if (s.log.length === 0) {
+      containerEl.createEl("p", { text: t.logEmpty, cls: "setting-item-description" });
+      return;
+    }
+    const list = containerEl.createEl("ul", { cls: "vault-lock-log" });
+    const reasons = {
+      startup: t.reasonStartup,
+      idle: t.reasonIdle,
+      left: t.reasonLeft,
+      manual: t.reasonManual,
+      system: t.reasonSystem
+    };
+    for (const e of [...s.log].reverse()) {
+      const what = e.k === "lock" ? `${t.logLocked}${e.r ? ` \xB7 ${reasons[e.r]}` : ""}` : e.k === "unlock" ? t.logUnlocked : e.k === "recover" ? t.logRecovered : t.logFailed;
+      list.createEl("li", { text: `${new Date(e.t).toLocaleString()}  ${what}` });
+    }
   }
   displayAppearance(containerEl, t, s, save) {
     const doc = containerEl.ownerDocument;
@@ -3230,9 +5312,9 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
         });
       });
     };
-    const slide = (name, min, max, step, get, set) => {
+    const slide = (name, min, max, step2, get, set) => {
       return new import_obsidian3.Setting(containerEl).setName(name).addSlider(
-        (c) => c.setLimits(min, max, step).setValue(get()).setDynamicTooltip().onChange(async (v) => {
+        (c) => c.setLimits(min, max, step2).setValue(get()).setDynamicTooltip().onChange(async (v) => {
           set(v);
           await save();
         })
@@ -3292,7 +5374,14 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
     choice(
       t.theme,
       THEMES,
-      { default: t.themeDefault, retro: t.themeRetro, cartoon: t.themeCartoon },
+      {
+        default: t.themeDefault,
+        win95: t.themeWin95,
+        terminal: t.themeTerminal,
+        "gameboy-snake": t.themeSnake,
+        "neon-breakout": t.themeBreakout,
+        "obsidian-runner": t.themeRunner
+      },
       () => s.theme,
       (v) => s.theme = v
     );
@@ -3400,8 +5489,8 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
     };
     syncWeightRow();
     new import_obsidian3.Setting(containerEl).setName(t.customTitle).setDesc(t.customTitleDesc).addText(
-      (c) => c.setPlaceholder(t.lockedTitle).setValue(s.customTitle).onChange(async (v) => {
-        s.customTitle = v.trim().slice(0, 60);
+      (c) => c.setPlaceholder(t.lockedTitle).setValue(s.customTitle).then((tc) => tc.inputEl.maxLength = 60).onChange(async (v) => {
+        s.customTitle = clipChars(v.trim(), 60);
         await save();
       })
     );
@@ -3462,19 +5551,24 @@ var PasswordModal = class extends import_obsidian3.Modal {
     this.current = "";
     this.next = "";
     this.confirm = "";
+    this.submitting = false;
   }
   onOpen() {
+    this.plugin.passwordModal = this;
     const t = this.plugin.t;
     const { contentEl } = this;
     contentEl.empty();
-    this.setTitle(this.mode === "set" ? t.modalSet : this.mode === "change" ? t.modalChange : t.modalRemove);
+    this.setTitle(
+      { set: t.modalSet, change: t.modalChange, remove: t.modalRemove, reset: t.modalReset, recovery: t.modalRecovery }[this.mode]
+    );
+    if (this.mode === "reset") contentEl.createEl("p", { text: t.resetIntro, cls: "setting-item-description" });
     const field = (name, set) => new import_obsidian3.Setting(contentEl).setName(name).addText((c) => {
       c.inputEl.type = "password";
       c.inputEl.autocomplete = "off";
       c.onChange(set);
     });
-    if (this.mode !== "set") field(t.current, (v) => this.current = v);
-    if (this.mode !== "remove") {
+    if (this.mode !== "set" && this.mode !== "reset") field(t.current, (v) => this.current = v);
+    if (this.mode !== "remove" && this.mode !== "recovery") {
       field(t.newPw, (v) => this.next = v);
       field(t.confirmPw, (v) => this.confirm = v);
     }
@@ -3485,27 +5579,48 @@ var PasswordModal = class extends import_obsidian3.Modal {
     });
   }
   onClose() {
+    if (this.plugin.passwordModal === this) this.plugin.passwordModal = null;
     this.contentEl.empty();
   }
+  /** Enter mashed twice must not run two checks at once (each wrong one would count as a failure). */
   async submit() {
+    if (this.submitting) return;
+    this.submitting = true;
+    try {
+      await this.run();
+    } finally {
+      this.submitting = false;
+    }
+  }
+  async run() {
     const t = this.plugin.t;
+    if (this.plugin.isLockActive) {
+      this.close();
+      return;
+    }
     if (!cryptoAvailable()) {
       new import_obsidian3.Notice(t.cryptoError);
       return;
     }
-    if (this.mode !== "set") {
+    if (this.mode !== "set" && this.mode !== "reset") {
       const res = await this.plugin.attemptUnlock(this.current);
       if (!res.ok) {
         new import_obsidian3.Notice(res.message);
         return;
       }
     }
+    if (this.plugin.isLockActive) return this.close();
+    let newKey = null;
     if (this.mode === "remove") {
       this.plugin.settings.credential = null;
+      this.plugin.settings.recovery = null;
       await this.plugin.saveSettings();
       new import_obsidian3.Notice(t.removed);
+    } else if (this.mode === "recovery") {
+      newKey = await this.plugin.issueRecoveryKey();
+      if (!newKey) return this.close();
     } else {
-      if (this.next.length < MIN_PASSWORD_LENGTH) {
+      if (charCount(this.next.normalize("NFKC")) < MIN_PASSWORD_LENGTH) {
         new import_obsidian3.Notice(fmt(t.tooShort, MIN_PASSWORD_LENGTH));
         return;
       }
@@ -3513,13 +5628,50 @@ var PasswordModal = class extends import_obsidian3.Modal {
         new import_obsidian3.Notice(t.mismatch);
         return;
       }
-      this.plugin.settings.credential = await createCredential(this.next);
+      const credential = await createCredential(this.next);
+      if (this.plugin.isLockActive) return this.close();
+      this.plugin.settings.credential = credential;
       this.plugin.settings.failCount = 0;
       this.plugin.settings.retryAt = 0;
       await this.plugin.saveSettings();
       new import_obsidian3.Notice(t.saved);
+      if (this.mode === "set" || this.mode === "reset") {
+        newKey = await this.plugin.issueRecoveryKey();
+        if (!newKey) return this.close();
+      }
     }
     this.close();
     this.onDone();
+    if (newKey) new RecoveryKeyModal(this.app, this.plugin, newKey).open();
+  }
+};
+var RecoveryKeyModal = class extends import_obsidian3.Modal {
+  constructor(app, plugin, key) {
+    super(app);
+    this.plugin = plugin;
+    this.key = key;
+  }
+  onOpen() {
+    this.plugin.passwordModal = this;
+    const t = this.plugin.t;
+    const { contentEl } = this;
+    contentEl.empty();
+    this.setTitle(t.recoveryKeyTitle);
+    contentEl.createEl("p", { text: t.recoveryKeyIntro });
+    contentEl.createEl("code", { text: this.key ?? "", cls: "vault-lock-recovery-key" });
+    new import_obsidian3.Setting(contentEl).addButton(
+      (b) => b.setButtonText(t.copyKey).onClick(async () => {
+        try {
+          await navigator.clipboard.writeText(this.key ?? "");
+          new import_obsidian3.Notice(t.copied);
+        } catch {
+        }
+      })
+    ).addButton((b) => b.setButtonText(t.keySaved).setCta().onClick(() => this.close()));
+  }
+  onClose() {
+    if (this.plugin.passwordModal === this) this.plugin.passwordModal = null;
+    this.key = null;
+    this.contentEl.empty();
   }
 };

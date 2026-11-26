@@ -9,15 +9,29 @@ import {
 	videoPath,
 	type VideoExt,
 } from "./background";
+import { appendLog, mergeLogs, parseLog, type LockReason, type LogEntry } from "./activitylog";
 import { cleanHex } from "./color";
-import { Credential, createCredential, cryptoAvailable, isCredential, verifyPassword } from "./crypto";
+import { applyDevice, pickDevice, type DeviceValues } from "./devicesettings";
+import {
+	Credential,
+	createCredential,
+	createRecoveryCredential,
+	cryptoAvailable,
+	generateRecoveryKey,
+	isCredential,
+	verifyPassword,
+	verifyRecoveryKey,
+} from "./crypto";
 import { detectTag, fmt, getStrings, type Strings } from "./i18n";
+import { charCount, clipChars } from "./text";
+import { MAX_SCORE, THEMES, emptyHighScores, mergeHighScores, parseHighScores, parseTheme, type HighScores, type Theme } from "./themes";
 import {
 	WINDOW_SIZES,
 	WINDOW_SIZE_NAMES,
 	isSavedWindow,
 	restoreWindow,
 	shrinkWindow,
+	watchSystemLock,
 	windowResizeSupported,
 	type SavedWindow,
 	type WindowSizeName,
@@ -32,7 +46,7 @@ import {
 	type FieldShape,
 	type FontStyle,
 	type Position,
-	type Theme,
+	type SubmitKind,
 	type TitleMode,
 	type Todo,
 	type UnlockResult,
@@ -48,14 +62,18 @@ type BackgroundKind = "none" | "image" | "video";
 interface Settings {
 	settingsVersion: number; // 2 = theme-aware defaults for clock font and field shape
 	credential: Credential | null;
+	recovery: Credential | null; // hash of the recovery key, or null
 	lockOnStartup: boolean;
 	idleMinutes: number; // 0 = off
 	lockOnHide: boolean;
+	coverOnBlur: boolean; // cover (and, after the grace period, lock) when the window loses focus, not only when it is hidden
+	lockOnSystemLock: boolean; // desktop: lock when the OS locks the screen or sleeps
 	graceSeconds: number; // 0 = immediately
 	failCount: number;
 	retryAt: number; // epoch ms
 	// appearance
 	theme: Theme;
+	highScores: HighScores; // best score of each offline game theme; survives "reset appearance"
 	backgroundKind: BackgroundKind;
 	hasBackground: boolean; // an image file exists at backgroundPath()
 	hasVideo: boolean; // a video file exists at videoPath(videoExt)
@@ -84,18 +102,24 @@ interface Settings {
 	shrinkOnLock: boolean;
 	lockWindowSize: WindowSizeName;
 	savedWindow: SavedWindow | null; // set while the window is shrunk; survives a quit-while-locked
+	log: LogEntry[]; // recent locks, unlocks and wrong passwords
+	lockedAtExit: boolean; // set while the screen is locked; a quit-while-locked starts locked again, whatever lockOnStartup says
 }
 
 const DEFAULTS: Settings = {
 	settingsVersion: 2,
 	credential: null,
+	recovery: null,
 	lockOnStartup: true,
 	idleMinutes: 10,
 	lockOnHide: true,
+	coverOnBlur: false,
+	lockOnSystemLock: true,
 	graceSeconds: 30,
 	failCount: 0,
 	retryAt: 0,
 	theme: "default",
+	highScores: emptyHighScores(),
 	backgroundKind: "none",
 	hasBackground: false,
 	hasVideo: false,
@@ -123,11 +147,15 @@ const DEFAULTS: Settings = {
 	shrinkOnLock: false,
 	lockWindowSize: "small",
 	savedWindow: null,
+	log: [],
+	lockedAtExit: false,
 };
+
+const DEVICE_ONLY_KEY = "lockscape-device-only";
+const DEVICE_VALUES_KEY = "lockscape-device-values";
 
 const IDLE_CHOICES = [0, 1, 5, 10, 15, 30, 60];
 const GRACE_CHOICES = [0, 15, 30, 60, 300];
-const THEMES: Theme[] = ["default", "retro", "cartoon"];
 const ANIMATIONS: AnimationKind[] = ["none", "aurora", "fireflies", "snow", "glow", "trail", "orbs"];
 const BACKGROUND_KINDS: BackgroundKind[] = ["none", "image", "video"];
 const POSITIONS: Position[] = ["top", "center", "bottom"];
@@ -166,7 +194,7 @@ function cleanTodos(v: unknown): Todo[] {
 		if (typeof x !== "object" || x === null) continue;
 		const r = x as Record<string, unknown>;
 		if (typeof r.id !== "string" || typeof r.text !== "string" || r.id.length > 64) continue;
-		const text = r.text.trim().slice(0, MAX_TODO_LENGTH);
+		const text = clipChars(r.text.trim(), MAX_TODO_LENGTH);
 		if (!text) continue;
 		out.push({ id: r.id, text, done: r.done === true });
 	}
@@ -179,9 +207,39 @@ export default class VaultLockPlugin extends Plugin {
 	private lockScreen!: LockScreen;
 	private lastActivity = Date.now();
 	private hiddenAt: number | null = null;
+	/** Documents of popout windows, taken straight from `window-open`: the window has no leaf yet at that moment. */
+	private readonly popoutDocs = new Set<Document>();
+	/** The open set/change/remove-password dialog, so it can be closed when the lock engages. */
+	passwordModal: Modal | null = null;
+	/** This device keeps its own auto-lock options (see devicesettings.ts). Stored in local storage, never synced. */
+	deviceOnly = false;
+	/** The shared (data.json) values of the device keys while `deviceOnly` is on, so saving never overwrites them. */
+	private sharedDevice: DeviceValues = {};
+	private stopSystemLock: (() => void) | null = null;
 
 	get hasPassword(): boolean {
 		return this.settings.credential !== null;
+	}
+
+	/** Persist whether the screen is locked, so quitting while locked cannot be used to get past the lock. */
+	private rememberLocked(locked: boolean): void {
+		if (this.settings.lockedAtExit === locked) return;
+		this.settings.lockedAtExit = locked;
+		void this.saveSettings();
+	}
+
+	/**
+	 * Called when the lock engages. The Settings screen opens in its own window, which the overlay does not cover,
+	 * and the password dialog opened from it lives there too: close both so nothing stays usable behind the lock.
+	 */
+	private closeOwnerDialogs(): void {
+		this.passwordModal?.close();
+		(this.app as App & { setting?: { close?: () => void } }).setting?.close?.();
+	}
+
+	/** The lock screen or the grace-period cover is up. Settings must not change then. */
+	get isLockActive(): boolean {
+		return this.lockScreen.isLocked || this.lockScreen.isCovering;
 	}
 
 	get pluginDir(): string {
@@ -211,8 +269,8 @@ export default class VaultLockPlugin extends Plugin {
 		this.t = getStrings();
 
 		this.lockScreen = new LockScreen(this.t, {
-			submit: (pw) => this.attemptUnlock(pw),
-			getRetryAt: () => this.settings.retryAt,
+			submit: (pw, kind) => this.attemptUnlock(pw, kind),
+			getRetryAt: () => this.capRetryAt(),
 			getDocuments: () => this.collectDocuments(),
 			getAppearance: () => this.appearance(),
 			getTodos: () => this.settings.todos,
@@ -221,35 +279,86 @@ export default class VaultLockPlugin extends Plugin {
 				void this.saveSettings();
 			},
 			onWindow: (active) => this.applyWindow(active),
-			onUnlocked: () => this.markActivity(),
+			onHighScore: (game, score) => {
+				if (score <= this.settings.highScores[game]) return;
+				this.settings.highScores = { ...this.settings.highScores, [game]: Math.min(MAX_SCORE, Math.floor(score)) };
+				void this.saveSettings();
+			},
+			onUnlocked: (kind) => {
+				this.markActivity();
+				this.rememberLocked(false);
+				this.logEvent({ t: Date.now(), k: kind === "recovery" ? "recover" : "unlock" });
+				// The password was forgotten: the owner picks a new one right away (and gets a new recovery key).
+				if (kind === "recovery") window.setTimeout(() => new PasswordModal(this.app, this, "reset", () => {}).open(), 100);
+			},
+			onLock: () => {
+				this.rememberLocked(true);
+				this.closeOwnerDialogs();
+			},
+			keymap: this.app.keymap,
 		});
 
 		// Lock as early as possible so notes are not visible while the workspace loads.
-		if (this.hasPassword && this.settings.lockOnStartup) this.lockScreen.lock();
+		if (this.hasPassword && (this.settings.lockOnStartup || this.settings.lockedAtExit)) this.lockWith("startup");
 		// The last session ended while locked and shrunk, and we are not locking now: put the window back.
 		else if (this.settings.savedWindow) this.applyWindow(false);
 
 		this.addSettingTab(new VaultLockSettingTab(this.app, this));
 		this.addCommand({ id: "lock-now", name: this.t.lockNow, callback: () => this.lockNow() });
+		// No password involved: a click or Esc shows the screen again. For hiding it before a screen share.
+		this.addCommand({ id: "hide-screen", name: this.t.hideScreen, callback: () => this.lockScreen.hideScreen() });
 		this.addRibbonIcon("lock", this.t.lockNow, () => this.lockNow());
 
 		// Activity tracking for idle lock (main window + popout windows).
 		this.watchActivity(window);
+		// Popout windows that already exist (the plugin was reloaded) count as activity too.
+		this.app.workspace.onLayoutReady(() => {
+			for (const doc of this.collectDocuments()) if (doc.defaultView) this.watchActivity(doc.defaultView);
+		});
 		this.registerEvent(
 			this.app.workspace.on("window-open", (_w, win) => {
 				this.watchActivity(win);
+				this.popoutDocs.add(win.document);
+				this.lockScreen.refresh();
+				// The new window may not have a body yet; try once more shortly after.
+				window.setTimeout(() => this.lockScreen.refresh(), 150);
+			}),
+		);
+		this.registerEvent(
+			this.app.workspace.on("window-close", (_w, win) => {
+				this.popoutDocs.delete(win.document);
 				this.lockScreen.refresh();
 			}),
 		);
-		this.registerEvent(this.app.workspace.on("window-close", () => this.lockScreen.refresh()));
 		this.registerInterval(window.setInterval(() => this.checkIdle(), 5_000));
+		// After sleep the 5 s timer can lag; the window coming back is the earlier signal.
+		this.registerDomEvent(window, "focus", () => this.checkIdle());
+		this.registerDomEvent(window, "pageshow", () => this.checkIdle());
+		this.syncSystemLock();
 
-		// Leaving the app: minimize (desktop) / app switch (mobile).
-		this.registerDomEvent(document, "visibilitychange", () => this.onVisibility());
 	}
 
 	onunload(): void {
+		this.stopSystemLock?.();
 		this.lockScreen?.destroy();
+	}
+
+	/** data.json changed on disk (sync from another device). Without this, our next save would overwrite it with stale values. */
+	async onExternalSettingsChange(): Promise<void> {
+		const local = {
+			log: this.settings.log,
+			savedWindow: this.settings.savedWindow,
+			lockedAtExit: this.settings.lockedAtExit,
+			highScores: this.settings.highScores,
+		};
+		await this.loadSettings();
+		// These describe this machine's window and lock state, not shared preferences.
+		this.settings.log = mergeLogs(local.log, this.settings.log);
+		this.settings.savedWindow = local.savedWindow;
+		this.settings.lockedAtExit = local.lockedAtExit;
+		this.settings.highScores = mergeHighScores(local.highScores, this.settings.highScores);
+		this.syncSystemLock();
+		this.lockScreen.refresh();
 	}
 
 	lockNow(): void {
@@ -257,7 +366,43 @@ export default class VaultLockPlugin extends Plugin {
 			new Notice(this.t.noPassword);
 			return;
 		}
+		this.lockWith("manual");
+	}
+
+	/** Lock, and note why in the activity log (once: locking an already locked screen adds nothing). */
+	private lockWith(reason: LockReason): void {
+		if (!this.lockScreen.isLocked) this.logEvent({ t: Date.now(), k: "lock", r: reason });
 		this.lockScreen.lock();
+	}
+
+	/** Make a new recovery key, store its hash and return the key to show once. Null if the lock engaged meanwhile. */
+	async issueRecoveryKey(): Promise<string | null> {
+		const key = generateRecoveryKey();
+		const credential = await createRecoveryCredential(key);
+		if (this.isLockActive || !this.hasPassword) return null;
+		this.settings.recovery = credential;
+		await this.saveSettings();
+		this.lockScreen.refresh(); // the "forgot your password?" link appears
+		return key;
+	}
+
+	logEvent(entry: LogEntry): void {
+		this.settings.log = appendLog(this.settings.log, entry);
+		void this.saveSettings();
+	}
+
+	refreshSystemLock(): void {
+		this.syncSystemLock();
+	}
+
+	/** Lock when the OS locks the screen or goes to sleep (desktop, and only when the app exposes the power monitor). */
+	private syncSystemLock(): void {
+		this.stopSystemLock?.();
+		this.stopSystemLock = null;
+		if (!Platform.isDesktopApp || !this.settings.lockOnSystemLock) return;
+		this.stopSystemLock = watchSystemLock(() => {
+			if (this.hasPassword && !this.lockScreen.isLocked) this.lockWith("system");
+		});
 	}
 
 	/** Show the lock screen without locking (works without a password set). */
@@ -285,7 +430,9 @@ export default class VaultLockPlugin extends Plugin {
 	private appearance(): Appearance {
 		const s = this.settings;
 		return {
+			hasRecovery: s.recovery !== null && s.credential !== null,
 			theme: s.theme,
+			highScores: s.highScores,
 			imageUrl: this.imageUrl,
 			videoUrl: this.videoUrl,
 			dim: s.dim,
@@ -313,18 +460,32 @@ export default class VaultLockPlugin extends Plugin {
 
 	// ---- unlock / rate limiting ---------------------------------------------------------
 
-	async attemptUnlock(password: string): Promise<UnlockResult> {
+	/** The stored wait can only be longer than the maximum if the system clock moved backwards: cap it (and keep the cap). */
+	private capRetryAt(): number {
+		const limit = Date.now() + BACKOFF_MAX_MS;
+		if (this.settings.retryAt > limit) {
+			this.settings.retryAt = limit;
+			void this.saveSettings();
+		}
+		return this.settings.retryAt;
+	}
+
+	/** Check the password, or the recovery key (`kind`). Both share one failure counter and one back-off. */
+	async attemptUnlock(password: string, kind: SubmitKind = "password"): Promise<UnlockResult> {
+		this.capRetryAt();
 		const now = Date.now();
-		const cred = this.settings.credential;
-		if (!cred) return { ok: true };
+		const cred = kind === "recovery" ? this.settings.recovery : this.settings.credential;
+		if (!this.settings.credential) return { ok: true };
+		if (!cred) return { ok: false, message: this.t.wrong }; // no recovery key exists: never a way in
 		if (now < this.settings.retryAt) {
 			return { ok: false, message: fmt(this.t.wait, Math.ceil((this.settings.retryAt - now) / 1000)), retryAt: this.settings.retryAt };
 		}
 		if (!cryptoAvailable()) return { ok: false, message: this.t.cryptoError }; // fail closed
+		if (password === "") return { ok: false, message: this.t.wrong }; // not an attempt: do not count it
 
 		let ok = false;
 		try {
-			ok = await verifyPassword(password, cred);
+			ok = kind === "recovery" ? await verifyRecoveryKey(password, cred) : await verifyPassword(password, cred);
 		} catch {
 			return { ok: false, message: this.t.cryptoError };
 		}
@@ -337,6 +498,7 @@ export default class VaultLockPlugin extends Plugin {
 		}
 
 		this.settings.failCount += 1;
+		this.settings.log = appendLog(this.settings.log, { t: Date.now(), k: "fail" });
 		if (this.settings.failCount >= FREE_ATTEMPTS) {
 			const wait = Math.min(BACKOFF_BASE_MS * 2 ** (this.settings.failCount - FREE_ATTEMPTS), BACKOFF_MAX_MS);
 			this.settings.retryAt = Date.now() + wait;
@@ -351,7 +513,19 @@ export default class VaultLockPlugin extends Plugin {
 		this.lastActivity = Date.now();
 	}
 
+	private readonly watchedWindows = new WeakSet<Window>();
+
 	private watchActivity(win: Window): void {
+		if (this.watchedWindows.has(win)) return;
+		this.watchedWindows.add(win);
+		// Leaving the app means "every window is hidden": a popout left in view keeps the notes on screen.
+		this.registerDomEvent(win.document, "visibilitychange", () => this.onVisibility());
+		// Focus moves between our own windows through a moment where none has it: look again shortly after.
+		for (const ev of ["blur", "focus"]) {
+			this.registerDomEvent(win, ev as keyof WindowEventMap, () => {
+				if (this.settings.coverOnBlur) window.setTimeout(() => this.onVisibility(), 150);
+			});
+		}
 		const bump = () => {
 			if (!this.lockScreen.isLocked && !this.lockScreen.isCovering) this.markActivity();
 		};
@@ -377,16 +551,20 @@ export default class VaultLockPlugin extends Plugin {
 	private checkIdle(): void {
 		const { idleMinutes } = this.settings;
 		if (!this.hasPassword || idleMinutes <= 0 || this.lockScreen.isLocked) return;
+		// The window is covered for the grace period: coming back inside it must not ask for the password (see onVisibility).
+		if (this.lockScreen.isCovering && !this.lockScreen.isManualCover) return;
 		// Also fires right after the machine wakes from sleep, since Date.now() jumps.
-		if (Date.now() - this.lastActivity >= idleMinutes * 60_000) this.lockScreen.lock();
+		if (Date.now() - this.lastActivity >= idleMinutes * 60_000) this.lockWith("idle");
 	}
 
 	private onVisibility(): void {
 		if (!this.hasPassword || !this.settings.lockOnHide) return;
-		if (document.visibilityState === "hidden") {
+		if (this.lockScreen.isManualCover) return; // the owner covered the screen on purpose; a click or the idle timer ends it
+		if (this.isAway()) {
 			if (this.lockScreen.isLocked) return;
+			if (this.hiddenAt !== null) return; // already counting
 			this.hiddenAt = Date.now();
-			if (this.settings.graceSeconds === 0) this.lockScreen.lock();
+			if (this.settings.graceSeconds === 0) this.lockWith("left");
 			else this.lockScreen.cover(); // hide content right away (app switcher snapshot)
 			return;
 		}
@@ -395,11 +573,28 @@ export default class VaultLockPlugin extends Plugin {
 		const away = Date.now() - this.hiddenAt;
 		this.hiddenAt = null;
 		if (this.lockScreen.isLocked) return;
-		if (away >= this.settings.graceSeconds * 1000) this.lockScreen.lock();
+		if (away >= this.settings.graceSeconds * 1000) this.lockWith("left");
 		else {
 			this.lockScreen.release();
 			this.markActivity();
 		}
+	}
+
+	/**
+	 * The app is out of sight: every window hidden or minimised, or (when the option is on) no window of the app has
+	 * focus. Obsidian's Settings window counts as the app, so using it never covers the notes.
+	 */
+	private isAway(): boolean {
+		if (this.allWindowsHidden()) return true;
+		if (!this.settings.coverOnBlur) return false;
+		if (this.collectDocuments().some((d) => d.hasFocus())) return false;
+		// In Obsidian 1.x the Settings window is a modal of its own window: its `modalEl` lives in that window's document.
+		const settingsDoc = (this.app as App & { setting?: { isOpen?: boolean; modalEl?: HTMLElement } }).setting?.modalEl?.ownerDocument;
+		return !(settingsDoc && settingsDoc !== document && settingsDoc.hasFocus());
+	}
+
+	private allWindowsHidden(): boolean {
+		return this.collectDocuments().every((d) => d.visibilityState === "hidden");
 	}
 
 	private collectDocuments(): Document[] {
@@ -408,24 +603,39 @@ export default class VaultLockPlugin extends Plugin {
 			const doc = leaf.view?.containerEl?.ownerDocument;
 			if (doc) docs.add(doc);
 		});
+		for (const doc of this.popoutDocs) {
+			if (doc.defaultView && !doc.defaultView.closed) docs.add(doc);
+			else this.popoutDocs.delete(doc);
+		}
 		return Array.from(docs);
 	}
 
 	// ---- settings I/O -------------------------------------------------------------------
 
 	async loadSettings(): Promise<void> {
-		const raw = ((await this.loadData()) ?? {}) as Partial<Record<keyof Settings, unknown>>;
+		const stored = ((await this.loadData()) ?? {}) as Partial<Record<keyof Settings, unknown>>;
+		this.sharedDevice = pickDevice(this.parseSettings(stored) as unknown as Record<string, unknown>);
+		this.deviceOnly = this.app.loadLocalStorage(DEVICE_ONLY_KEY) === true;
+		const raw = this.deviceOnly ? applyDevice(stored, this.app.loadLocalStorage(DEVICE_VALUES_KEY)) : stored;
+		this.settings = this.parseSettings(raw);
+	}
+
+	private parseSettings(raw: Partial<Record<keyof Settings, unknown>>): Settings {
 		// v1 builds saved "sans" / "rounded" as *defaults* before themes existed; treat those as "theme decides".
 		const v1 = typeof raw.settingsVersion !== "number" || raw.settingsVersion < 2;
 		const legacyFont = v1 && raw.clockFont === "sans" && (raw.clockWeight === undefined || raw.clockWeight === 300);
 		const legacyShape = v1 && raw.fieldShape === "rounded";
-		this.settings = {
+		return {
 			settingsVersion: 2,
-			theme: oneOf(raw.theme, THEMES, DEFAULTS.theme),
+			theme: parseTheme(raw.theme), // retro and cartoon (earlier versions) fall back to the default
+			highScores: parseHighScores(raw.highScores),
 			credential: isCredential(raw.credential) ? raw.credential : null,
+			recovery: isCredential(raw.credential) && isCredential(raw.recovery) ? raw.recovery : null,
 			lockOnStartup: bool(raw.lockOnStartup, DEFAULTS.lockOnStartup),
 			idleMinutes: num(raw.idleMinutes, DEFAULTS.idleMinutes, 0, 24 * 60),
 			lockOnHide: bool(raw.lockOnHide, DEFAULTS.lockOnHide),
+			coverOnBlur: bool(raw.coverOnBlur, DEFAULTS.coverOnBlur),
+			lockOnSystemLock: bool(raw.lockOnSystemLock, DEFAULTS.lockOnSystemLock),
 			graceSeconds: num(raw.graceSeconds, DEFAULTS.graceSeconds, 0, 3600),
 			failCount: num(raw.failCount, 0, 0, 1000),
 			retryAt: num(raw.retryAt, 0, 0, Number.MAX_SAFE_INTEGER),
@@ -448,7 +658,7 @@ export default class VaultLockPlugin extends Plugin {
 			todos: cleanTodos(raw.todos),
 			hoverReveal: bool(raw.hoverReveal, DEFAULTS.hoverReveal),
 			titleMode: oneOf(raw.titleMode, TITLE_MODES, DEFAULTS.titleMode),
-			customTitle: typeof raw.customTitle === "string" ? raw.customTitle.trim().slice(0, 60) : "",
+			customTitle: typeof raw.customTitle === "string" ? clipChars(raw.customTitle.trim(), 60) : "",
 			showIcon: bool(raw.showIcon, DEFAULTS.showIcon),
 			position: oneOf(raw.position, POSITIONS, DEFAULTS.position),
 			fieldShape: legacyShape ? "auto" : oneOf(raw.fieldShape, FIELD_SHAPES, DEFAULTS.fieldShape),
@@ -460,11 +670,36 @@ export default class VaultLockPlugin extends Plugin {
 			shrinkOnLock: bool(raw.shrinkOnLock, DEFAULTS.shrinkOnLock),
 			lockWindowSize: oneOf(raw.lockWindowSize, WINDOW_SIZE_NAMES, DEFAULTS.lockWindowSize),
 			savedWindow: isSavedWindow(raw.savedWindow) ? raw.savedWindow : null,
+			log: parseLog(raw.log),
+			lockedAtExit: bool(raw.lockedAtExit, false),
 		};
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		if (this.deviceOnly) {
+			// This device's values go to local storage; data.json keeps the shared ones for the other devices.
+			this.app.saveLocalStorage(DEVICE_VALUES_KEY, pickDevice(this.settings as unknown as Record<string, unknown>));
+			await this.saveData({ ...this.settings, ...this.sharedDevice });
+		} else {
+			await this.saveData(this.settings);
+		}
+	}
+
+	/** Turn "separate settings on this device" on or off. Off goes back to the shared values. */
+	async setDeviceOnly(on: boolean): Promise<void> {
+		if (on === this.deviceOnly) return;
+		this.deviceOnly = on;
+		if (on) {
+			// Start from what this device uses now; the shared copy stays as it is for the other devices.
+			this.sharedDevice = pickDevice(this.settings as unknown as Record<string, unknown>);
+			this.app.saveLocalStorage(DEVICE_ONLY_KEY, true);
+		} else {
+			Object.assign(this.settings, this.sharedDevice);
+			this.app.saveLocalStorage(DEVICE_ONLY_KEY, null);
+			this.app.saveLocalStorage(DEVICE_VALUES_KEY, null);
+		}
+		await this.saveSettings();
+		this.syncSystemLock();
 	}
 }
 
@@ -495,6 +730,13 @@ class VaultLockSettingTab extends PluginSettingTab {
 			pw.addButton((b) => b.setButtonText(t.removePassword).setWarning().onClick(() => this.openModal("remove")));
 		} else {
 			pw.addButton((b) => b.setButtonText(t.setPassword).setCta().onClick(() => this.openModal("set")));
+		}
+
+		if (this.plugin.hasPassword) {
+			new Setting(containerEl)
+				.setName(t.recoveryRow)
+				.setDesc(s.recovery ? t.recoveryOn : t.recoveryOff)
+				.addButton((b) => b.setButtonText(s.recovery ? t.renewRecovery : t.makeRecovery).onClick(() => this.openModal("recovery")));
 		}
 
 		new Setting(containerEl).setName(t.lockOnStartup).addToggle((c) =>
@@ -535,7 +777,70 @@ class VaultLockSettingTab extends PluginSettingTab {
 				});
 			});
 
+		new Setting(containerEl)
+			.setName(t.coverOnBlur)
+			.setDesc(t.coverOnBlurDesc)
+			.addToggle((c) =>
+				c.setValue(s.coverOnBlur).onChange(async (v) => {
+					s.coverOnBlur = v;
+					await save();
+				}),
+			);
+
+		if (Platform.isDesktopApp) {
+			new Setting(containerEl)
+				.setName(t.lockOnSystemLock)
+				.setDesc(t.lockOnSystemLockDesc)
+				.addToggle((c) =>
+					c.setValue(s.lockOnSystemLock).onChange(async (v) => {
+						s.lockOnSystemLock = v;
+						await save();
+						this.plugin.refreshSystemLock();
+					}),
+				);
+		}
+
+		new Setting(containerEl)
+			.setName(t.deviceOnly)
+			.setDesc(t.deviceOnlyDesc)
+			.addToggle((c) =>
+				c.setValue(this.plugin.deviceOnly).onChange(async (v) => {
+					await this.plugin.setDeviceOnly(v);
+					this.display(); // values on screen may have changed
+				}),
+			);
+
 		this.displayAppearance(containerEl, t, s, save);
+		this.displayLog(containerEl, t);
+	}
+
+	private displayLog(containerEl: HTMLElement, t: Strings): void {
+		const s = this.plugin.settings;
+		new Setting(containerEl).setName(t.logTitle).setHeading();
+		const row = new Setting(containerEl).setDesc(t.logDesc);
+		row.addButton((b) =>
+			b.setButtonText(t.logClear).onClick(async () => {
+				s.log = [];
+				await this.plugin.saveSettings();
+				this.display();
+			}),
+		);
+		if (s.log.length === 0) {
+			containerEl.createEl("p", { text: t.logEmpty, cls: "setting-item-description" });
+			return;
+		}
+		const list = containerEl.createEl("ul", { cls: "vault-lock-log" });
+		const reasons: Record<LockReason, string> = {
+			startup: t.reasonStartup,
+			idle: t.reasonIdle,
+			left: t.reasonLeft,
+			manual: t.reasonManual,
+			system: t.reasonSystem,
+		};
+		for (const e of [...s.log].reverse()) {
+			const what = e.k === "lock" ? `${t.logLocked}${e.r ? ` · ${reasons[e.r]}` : ""}` : e.k === "unlock" ? t.logUnlocked : e.k === "recover" ? t.logRecovered : t.logFailed;
+			list.createEl("li", { text: `${new Date(e.t).toLocaleString()}  ${what}` });
+		}
 	}
 
 	private displayAppearance(containerEl: HTMLElement, t: Strings, s: Settings, save: () => Promise<void>): void {
@@ -646,7 +951,14 @@ class VaultLockSettingTab extends PluginSettingTab {
 		choice(
 			t.theme,
 			THEMES,
-			{ default: t.themeDefault, retro: t.themeRetro, cartoon: t.themeCartoon },
+			{
+				default: t.themeDefault,
+				win95: t.themeWin95,
+				terminal: t.themeTerminal,
+				"gameboy-snake": t.themeSnake,
+				"neon-breakout": t.themeBreakout,
+				"obsidian-runner": t.themeRunner,
+			},
 			() => s.theme,
 			(v) => (s.theme = v),
 		);
@@ -770,8 +1082,9 @@ class VaultLockSettingTab extends PluginSettingTab {
 				c
 					.setPlaceholder(t.lockedTitle)
 					.setValue(s.customTitle)
+					.then((tc) => (tc.inputEl.maxLength = 60)) // counts UTF-16 units, so it can only err on the short side
 					.onChange(async (v) => {
-						s.customTitle = v.trim().slice(0, 60);
+						s.customTitle = clipChars(v.trim(), 60);
 						await save();
 					}),
 			);
@@ -832,10 +1145,16 @@ class VaultLockSettingTab extends PluginSettingTab {
 			);
 	}
 
-	private openModal(mode: "set" | "change" | "remove"): void {
+	private openModal(mode: PasswordMode): void {
 		new PasswordModal(this.app, this.plugin, mode, () => this.display()).open();
 	}
 }
+
+/**
+ * set: first password. change/remove/recovery: ask the current password first.
+ * reset: no current password; only opened by the plugin right after a recovery-key unlock.
+ */
+type PasswordMode = "set" | "change" | "remove" | "reset" | "recovery";
 
 class PasswordModal extends Modal {
 	private current = "";
@@ -845,17 +1164,21 @@ class PasswordModal extends Modal {
 	constructor(
 		app: App,
 		private readonly plugin: VaultLockPlugin,
-		private readonly mode: "set" | "change" | "remove",
+		private readonly mode: PasswordMode,
 		private readonly onDone: () => void,
 	) {
 		super(app);
 	}
 
 	onOpen(): void {
+		this.plugin.passwordModal = this;
 		const t = this.plugin.t;
 		const { contentEl } = this;
 		contentEl.empty();
-		this.setTitle(this.mode === "set" ? t.modalSet : this.mode === "change" ? t.modalChange : t.modalRemove);
+		this.setTitle(
+			{ set: t.modalSet, change: t.modalChange, remove: t.modalRemove, reset: t.modalReset, recovery: t.modalRecovery }[this.mode],
+		);
+		if (this.mode === "reset") contentEl.createEl("p", { text: t.resetIntro, cls: "setting-item-description" });
 
 		const field = (name: string, set: (v: string) => void) =>
 			new Setting(contentEl).setName(name).addText((c) => {
@@ -864,8 +1187,8 @@ class PasswordModal extends Modal {
 				c.onChange(set);
 			});
 
-		if (this.mode !== "set") field(t.current, (v) => (this.current = v));
-		if (this.mode !== "remove") {
+		if (this.mode !== "set" && this.mode !== "reset") field(t.current, (v) => (this.current = v));
+		if (this.mode !== "remove" && this.mode !== "recovery") {
 			field(t.newPw, (v) => (this.next = v));
 			field(t.confirmPw, (v) => (this.confirm = v));
 		}
@@ -881,28 +1204,54 @@ class PasswordModal extends Modal {
 	}
 
 	onClose(): void {
+		if (this.plugin.passwordModal === this) this.plugin.passwordModal = null;
 		this.contentEl.empty();
 	}
 
+	private submitting = false;
+
+	/** Enter mashed twice must not run two checks at once (each wrong one would count as a failure). */
 	private async submit(): Promise<void> {
+		if (this.submitting) return;
+		this.submitting = true;
+		try {
+			await this.run();
+		} finally {
+			this.submitting = false;
+		}
+	}
+
+	private async run(): Promise<void> {
 		const t = this.plugin.t;
+		// Never change or remove the password while the screen is locked (a dialog left open before the lock).
+		if (this.plugin.isLockActive) {
+			this.close();
+			return;
+		}
 		if (!cryptoAvailable()) {
 			new Notice(t.cryptoError);
 			return;
 		}
-		if (this.mode !== "set") {
+		if (this.mode !== "set" && this.mode !== "reset") {
 			const res = await this.plugin.attemptUnlock(this.current);
 			if (!res.ok) {
 				new Notice(res.message);
 				return;
 			}
 		}
+		if (this.plugin.isLockActive) return this.close(); // the lock engaged while the hash was being checked
+		let newKey: string | null = null;
 		if (this.mode === "remove") {
 			this.plugin.settings.credential = null;
+			this.plugin.settings.recovery = null; // a recovery key without a password means nothing
 			await this.plugin.saveSettings();
 			new Notice(t.removed);
+		} else if (this.mode === "recovery") {
+			newKey = await this.plugin.issueRecoveryKey();
+			if (!newKey) return this.close();
 		} else {
-			if (this.next.length < MIN_PASSWORD_LENGTH) {
+			// Count characters the way the hash sees them: normalised (NFKC) and by code point, not UTF-16 units.
+			if (charCount(this.next.normalize("NFKC")) < MIN_PASSWORD_LENGTH) {
 				new Notice(fmt(t.tooShort, MIN_PASSWORD_LENGTH));
 				return;
 			}
@@ -910,13 +1259,63 @@ class PasswordModal extends Modal {
 				new Notice(t.mismatch);
 				return;
 			}
-			this.plugin.settings.credential = await createCredential(this.next);
+			const credential = await createCredential(this.next);
+			if (this.plugin.isLockActive) return this.close();
+			this.plugin.settings.credential = credential;
 			this.plugin.settings.failCount = 0;
 			this.plugin.settings.retryAt = 0;
 			await this.plugin.saveSettings();
 			new Notice(t.saved);
+			// A first password and a reset both come with a fresh recovery key. A plain change keeps the one that exists.
+			if (this.mode === "set" || this.mode === "reset") {
+				newKey = await this.plugin.issueRecoveryKey();
+				if (!newKey) return this.close();
+			}
 		}
 		this.close();
 		this.onDone();
+		if (newKey) new RecoveryKeyModal(this.app, this.plugin, newKey).open();
+	}
+}
+
+/** Shows a new recovery key once. The key is never stored; closing the window (or locking the screen) drops it. */
+class RecoveryKeyModal extends Modal {
+	private key: string | null;
+
+	constructor(
+		app: App,
+		private readonly plugin: VaultLockPlugin,
+		key: string,
+	) {
+		super(app);
+		this.key = key;
+	}
+
+	onOpen(): void {
+		this.plugin.passwordModal = this; // so the lock closes it: the key must not stay on screen behind the lock
+		const t = this.plugin.t;
+		const { contentEl } = this;
+		contentEl.empty();
+		this.setTitle(t.recoveryKeyTitle);
+		contentEl.createEl("p", { text: t.recoveryKeyIntro });
+		contentEl.createEl("code", { text: this.key ?? "", cls: "vault-lock-recovery-key" });
+		new Setting(contentEl)
+			.addButton((b) =>
+				b.setButtonText(t.copyKey).onClick(async () => {
+					try {
+						await navigator.clipboard.writeText(this.key ?? "");
+						new Notice(t.copied);
+					} catch {
+						/* clipboard blocked: the key is on screen to write down */
+					}
+				}),
+			)
+			.addButton((b) => b.setButtonText(t.keySaved).setCta().onClick(() => this.close()));
+	}
+
+	onClose(): void {
+		if (this.plugin.passwordModal === this) this.plugin.passwordModal = null;
+		this.key = null;
+		this.contentEl.empty();
 	}
 }
