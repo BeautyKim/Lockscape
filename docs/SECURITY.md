@@ -23,7 +23,7 @@ For auditors and the cautious. Lockscape is a **screen lock**; it does not encry
 **Does NOT protect against:**
 - Anyone who can read the vault folder: notes are plain `.md` files. Use **FileVault / BitLocker** for lost or stolen devices.
 - Anyone who can disable the plugin or edit `data.json` / developer tools. A UI lock inside the app cannot stop this.
-- Offline guessing of the password from a copy of `data.json` (it syncs with the vault). Use a long passphrase (≥ 12 chars recommended; 8 is the enforced minimum).
+- Offline guessing of the password from a copy of `data.json` (it syncs with the vault). Use a long passphrase (≥ 12 chars recommended). **The enforced minimum is only 4 characters**, a convenience choice: the back-off protects the lock screen, not the file. As a rough scale, one PBKDF2 check at 600k iterations took about 75 ms on the development Mac, so all 10,000 four-digit combinations take about 13 minutes on one core, and far less on a GPU or several cores. Letters and symbols enlarge the search; 4 digits are the weakest choice.
 - Cloud sync providers see the plain notes.
 
 - **The to-do list on the lock screen is visible and editable without the password** (that is the point of the feature). It is **off by default**; never put anything sensitive in it. It is stored unencrypted in `data.json`.

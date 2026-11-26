@@ -39,6 +39,7 @@ const ja: Strings = {
 	save: "保存",
 	cancel: "キャンセル",
 	tooShort: "パスワードは{n}文字以上にしてください。",
+	shortPwHint: "4文字以上。8文字以上が安全です。短いパスワードは data.json のコピーを持つ人に短時間で推測されます。",
 	mismatch: "新しいパスワードが一致しません。",
 	saved: "パスワードを保存しました。",
 	removed: "パスワードを解除しました。",

@@ -40,6 +40,7 @@ const pt: Strings = {
 	save: "Salvar",
 	cancel: "Cancelar",
 	tooShort: "A senha deve ter pelo menos {n} caracteres.",
+	shortPwHint: "Mínimo de 4 caracteres. 8 ou mais é mais seguro: quem tiver uma cópia do data.json consegue adivinhar rápido uma senha curta.",
 	mismatch: "As novas senhas não coincidem.",
 	saved: "Senha salva.",
 	removed: "Senha removida.",

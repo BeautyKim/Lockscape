@@ -76,7 +76,7 @@ export async function verifyPassword(password: string, cred: Credential): Promis
 
 // ---- recovery key ---------------------------------------------------------------------------------------
 // A random key the owner writes down when setting the password. Only its PBKDF2 hash is stored (same scheme as the
-// password). It is 120 random bits, so unlike a PIN it cannot be guessed offline from a copy of data.json.
+// password). It is 120 random bits, so unlike a short password it cannot be guessed offline from a copy of data.json.
 
 // Crockford base32: no I, L, O, U, so a hand-written key is hard to misread. 32 symbols = 5 bits each.
 const RK_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";

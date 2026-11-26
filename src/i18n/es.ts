@@ -39,6 +39,7 @@ const es: Strings = {
 	save: "Guardar",
 	cancel: "Cancelar",
 	tooShort: "La contraseña debe tener al menos {n} caracteres.",
+	shortPwHint: "Mínimo 4 caracteres. 8 o más es más seguro: quien tenga una copia de data.json puede adivinar rápido una contraseña corta.",
 	mismatch: "Las nuevas contraseñas no coinciden.",
 	saved: "Contraseña guardada.",
 	removed: "Contraseña eliminada.",

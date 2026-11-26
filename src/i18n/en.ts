@@ -39,6 +39,7 @@ const en = {
 	save: "Save",
 	cancel: "Cancel",
 	tooShort: "Password must be at least {n} characters.",
+	shortPwHint: "At least 4 characters. 8 or more is safer: a short password can be guessed quickly by someone who has a copy of data.json.",
 	mismatch: "The new passwords do not match.",
 	saved: "Password saved.",
 	removed: "Password removed.",

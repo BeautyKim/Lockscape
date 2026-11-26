@@ -379,6 +379,7 @@ var en = {
   save: "Save",
   cancel: "Cancel",
   tooShort: "Password must be at least {n} characters.",
+  shortPwHint: "At least 4 characters. 8 or more is safer: a short password can be guessed quickly by someone who has a copy of data.json.",
   mismatch: "The new passwords do not match.",
   saved: "Password saved.",
   removed: "Password removed.",
@@ -544,6 +545,7 @@ var ko = {
   save: "\uC800\uC7A5",
   cancel: "\uCDE8\uC18C",
   tooShort: "\uBE44\uBC00\uBC88\uD638\uB294 {n}\uC790 \uC774\uC0C1\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.",
+  shortPwHint: "4\uC790 \uC774\uC0C1. 8\uC790 \uC774\uC0C1\uC774 \uC548\uC804\uD569\uB2C8\uB2E4. \uC9E7\uC740 \uBE44\uBC00\uBC88\uD638\uB294 data.json \uC0AC\uBCF8\uC744 \uAC00\uC9C4 \uC0AC\uB78C\uC774 \uC9E7\uC740 \uC2DC\uAC04\uC5D0 \uC54C\uC544\uB0BC \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   mismatch: "\uC0C8 \uBE44\uBC00\uBC88\uD638\uAC00 \uC11C\uB85C \uB2E4\uB985\uB2C8\uB2E4.",
   saved: "\uBE44\uBC00\uBC88\uD638\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   removed: "\uBE44\uBC00\uBC88\uD638\uB97C \uD574\uC81C\uD588\uC2B5\uB2C8\uB2E4.",
@@ -709,6 +711,7 @@ var ja = {
   save: "\u4FDD\u5B58",
   cancel: "\u30AD\u30E3\u30F3\u30BB\u30EB",
   tooShort: "\u30D1\u30B9\u30EF\u30FC\u30C9\u306F{n}\u6587\u5B57\u4EE5\u4E0A\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  shortPwHint: "4\u6587\u5B57\u4EE5\u4E0A\u30028\u6587\u5B57\u4EE5\u4E0A\u304C\u5B89\u5168\u3067\u3059\u3002\u77ED\u3044\u30D1\u30B9\u30EF\u30FC\u30C9\u306F data.json \u306E\u30B3\u30D4\u30FC\u3092\u6301\u3064\u4EBA\u306B\u77ED\u6642\u9593\u3067\u63A8\u6E2C\u3055\u308C\u307E\u3059\u3002",
   mismatch: "\u65B0\u3057\u3044\u30D1\u30B9\u30EF\u30FC\u30C9\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002",
   saved: "\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002",
   removed: "\u30D1\u30B9\u30EF\u30FC\u30C9\u3092\u89E3\u9664\u3057\u307E\u3057\u305F\u3002",
@@ -874,6 +877,7 @@ var zh = {
   save: "\u4FDD\u5B58",
   cancel: "\u53D6\u6D88",
   tooShort: "\u5BC6\u7801\u81F3\u5C11\u9700\u8981 {n} \u4E2A\u5B57\u7B26\u3002",
+  shortPwHint: "\u81F3\u5C11 4 \u4E2A\u5B57\u7B26\u30028 \u4E2A\u4EE5\u4E0A\u66F4\u5B89\u5168:\u62FF\u5230 data.json \u526F\u672C\u7684\u4EBA\u53EF\u4EE5\u5F88\u5FEB\u731C\u51FA\u77ED\u5BC6\u7801\u3002",
   mismatch: "\u4E24\u6B21\u8F93\u5165\u7684\u65B0\u5BC6\u7801\u4E0D\u4E00\u81F4\u3002",
   saved: "\u5BC6\u7801\u5DF2\u4FDD\u5B58\u3002",
   removed: "\u5BC6\u7801\u5DF2\u79FB\u9664\u3002",
@@ -1039,6 +1043,7 @@ var zhTW = {
   save: "\u5132\u5B58",
   cancel: "\u53D6\u6D88",
   tooShort: "\u5BC6\u78BC\u81F3\u5C11\u9700\u8981 {n} \u500B\u5B57\u5143\u3002",
+  shortPwHint: "\u81F3\u5C11 4 \u500B\u5B57\u5143\u30028 \u500B\u4EE5\u4E0A\u66F4\u5B89\u5168:\u53D6\u5F97 data.json \u526F\u672C\u7684\u4EBA\u80FD\u5F88\u5FEB\u731C\u51FA\u77ED\u5BC6\u78BC\u3002",
   mismatch: "\u5169\u6B21\u8F38\u5165\u7684\u65B0\u5BC6\u78BC\u4E0D\u4E00\u81F4\u3002",
   saved: "\u5BC6\u78BC\u5DF2\u5132\u5B58\u3002",
   removed: "\u5BC6\u78BC\u5DF2\u79FB\u9664\u3002",
@@ -1204,6 +1209,7 @@ var es = {
   save: "Guardar",
   cancel: "Cancelar",
   tooShort: "La contrase\xF1a debe tener al menos {n} caracteres.",
+  shortPwHint: "M\xEDnimo 4 caracteres. 8 o m\xE1s es m\xE1s seguro: quien tenga una copia de data.json puede adivinar r\xE1pido una contrase\xF1a corta.",
   mismatch: "Las nuevas contrase\xF1as no coinciden.",
   saved: "Contrase\xF1a guardada.",
   removed: "Contrase\xF1a eliminada.",
@@ -1369,6 +1375,7 @@ var fr = {
   save: "Enregistrer",
   cancel: "Annuler",
   tooShort: "Le mot de passe doit contenir au moins {n} caract\xE8res.",
+  shortPwHint: "4 caract\xE8res minimum. 8 ou plus est plus s\xFBr : une personne qui poss\xE8de une copie de data.json peut vite deviner un mot de passe court.",
   mismatch: "Les nouveaux mots de passe ne correspondent pas.",
   saved: "Mot de passe enregistr\xE9.",
   removed: "Mot de passe supprim\xE9.",
@@ -1534,6 +1541,7 @@ var de = {
   save: "Speichern",
   cancel: "Abbrechen",
   tooShort: "Das Passwort muss mindestens {n} Zeichen lang sein.",
+  shortPwHint: "Mindestens 4 Zeichen. 8 oder mehr sind sicherer: Wer eine Kopie von data.json hat, kann ein kurzes Passwort schnell erraten.",
   mismatch: "Die neuen Passw\xF6rter stimmen nicht \xFCberein.",
   saved: "Passwort gespeichert.",
   removed: "Passwort entfernt.",
@@ -1699,6 +1707,7 @@ var pt = {
   save: "Salvar",
   cancel: "Cancelar",
   tooShort: "A senha deve ter pelo menos {n} caracteres.",
+  shortPwHint: "M\xEDnimo de 4 caracteres. 8 ou mais \xE9 mais seguro: quem tiver uma c\xF3pia do data.json consegue adivinhar r\xE1pido uma senha curta.",
   mismatch: "As novas senhas n\xE3o coincidem.",
   saved: "Senha salva.",
   removed: "Senha removida.",
@@ -1864,6 +1873,7 @@ var ru = {
   save: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
   cancel: "\u041E\u0442\u043C\u0435\u043D\u0430",
   tooShort: "\u041F\u0430\u0440\u043E\u043B\u044C \u0434\u043E\u043B\u0436\u0435\u043D \u0441\u043E\u0434\u0435\u0440\u0436\u0430\u0442\u044C \u043D\u0435 \u043C\u0435\u043D\u0435\u0435 {n} \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432.",
+  shortPwHint: "\u041D\u0435 \u043C\u0435\u043D\u0435\u0435 4 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432. 8 \u0438 \u0431\u043E\u043B\u044C\u0448\u0435 \u043D\u0430\u0434\u0451\u0436\u043D\u0435\u0435: \u0442\u043E\u0442, \u0443 \u043A\u043E\u0433\u043E \u0435\u0441\u0442\u044C \u043A\u043E\u043F\u0438\u044F data.json, \u0431\u044B\u0441\u0442\u0440\u043E \u043F\u043E\u0434\u0431\u0435\u0440\u0451\u0442 \u043A\u043E\u0440\u043E\u0442\u043A\u0438\u0439 \u043F\u0430\u0440\u043E\u043B\u044C.",
   mismatch: "\u041D\u043E\u0432\u044B\u0435 \u043F\u0430\u0440\u043E\u043B\u0438 \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u044E\u0442.",
   saved: "\u041F\u0430\u0440\u043E\u043B\u044C \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D.",
   removed: "\u041F\u0430\u0440\u043E\u043B\u044C \u0443\u0434\u0430\u043B\u0451\u043D.",
@@ -4613,7 +4623,7 @@ var LockScreen = class {
 };
 
 // src/main.ts
-var MIN_PASSWORD_LENGTH = 8;
+var MIN_PASSWORD_LENGTH = 4;
 var FREE_ATTEMPTS = 5;
 var BACKOFF_BASE_MS = 3e4;
 var BACKOFF_MAX_MS = 15 * 6e4;
@@ -5515,7 +5525,7 @@ var PasswordModal = class extends import_obsidian3.Modal {
     });
     if (this.mode !== "set" && this.mode !== "reset") field(t.current, (v) => this.current = v);
     if (this.mode !== "remove" && this.mode !== "recovery") {
-      field(t.newPw, (v) => this.next = v);
+      field(t.newPw, (v) => this.next = v).setDesc(t.shortPwHint);
       field(t.confirmPw, (v) => this.confirm = v);
     }
     new import_obsidian3.Setting(contentEl).addButton((b) => b.setButtonText(t.cancel).onClick(() => this.close())).addButton((b) => b.setButtonText(t.save).setCta().onClick(() => void this.submit()));

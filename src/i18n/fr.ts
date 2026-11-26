@@ -39,6 +39,7 @@ const fr: Strings = {
 	save: "Enregistrer",
 	cancel: "Annuler",
 	tooShort: "Le mot de passe doit contenir au moins {n} caractères.",
+	shortPwHint: "4 caractères minimum. 8 ou plus est plus sûr : une personne qui possède une copie de data.json peut vite deviner un mot de passe court.",
 	mismatch: "Les nouveaux mots de passe ne correspondent pas.",
 	saved: "Mot de passe enregistré.",
 	removed: "Mot de passe supprimé.",

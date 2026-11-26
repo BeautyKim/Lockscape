@@ -35,7 +35,7 @@ Requires Obsidian 1.13.0 or newer (older apps are offered version 0.1.2, which s
 
 ## Getting started
 
-1. Open Settings → **Lockscape** and choose **Set password** (at least 8 characters).
+1. Open Settings → **Lockscape** and choose **Set password** (at least 4 characters; 8 or more is strongly recommended).
 2. A **recovery key** appears once. Write it down and keep it away from this computer.
 3. Pick a theme and a background under *Lock screen appearance*, and press **Preview** to see it.
 4. Lock with the padlock in the ribbon or the command **Lockscape: Lock now**.
@@ -77,7 +77,7 @@ Requires Obsidian 1.13.0 or newer (older apps are offered version 0.1.2, which s
 
 **Are the games safe to play on a lock screen?** They run only on the lock screen, offline, in plain canvas code, and never read the password you type. Keys go to the password field when it has focus (Tab moves there, Esc gives the keyboard back to the game).
 
-**Why a recovery key and not a PIN?** A PIN is short enough to guess offline from a copy of `data.json`. The recovery key has 120 random bits.
+**Is a 4-character password enough?** It stops someone at your keyboard: after five wrong tries the app makes them wait. It does not stop someone who has a copy of `data.json`, who can try every short combination offline, bypassing that wait. Use 8 characters or more if your vault folder is synced or shared. The recovery key has 120 random bits and cannot be guessed this way.
 
 ## More
 

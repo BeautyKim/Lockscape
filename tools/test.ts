@@ -20,6 +20,7 @@ const check = (name: string, ok: boolean) => { console.log((ok ? "PASS " : "FAIL
   check("credential shape valid", isCredential(cred));
   check("correct password verifies", await verifyPassword("correct horse battery", cred));
   check("wrong password rejected", !(await verifyPassword("wrong", cred)));
+  check("a 4-character password hashes and verifies", await verifyPassword("1357", await createCredential("1357")));
   check("salt differs per credential", (await createCredential("x" + "y".repeat(8))).salt !== cred.salt);
   // Korean: NFC vs NFD (macOS vs Windows input) must match
   const ko = "비밀번호테스트1234";

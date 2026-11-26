@@ -39,6 +39,7 @@ const ko: Strings = {
 	save: "저장",
 	cancel: "취소",
 	tooShort: "비밀번호는 {n}자 이상이어야 합니다.",
+	shortPwHint: "4자 이상. 8자 이상이 안전합니다. 짧은 비밀번호는 data.json 사본을 가진 사람이 짧은 시간에 알아낼 수 있습니다.",
 	mismatch: "새 비밀번호가 서로 다릅니다.",
 	saved: "비밀번호를 저장했습니다.",
 	removed: "비밀번호를 해제했습니다.",

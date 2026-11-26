@@ -39,6 +39,7 @@ const zhTW: Strings = {
 	save: "儲存",
 	cancel: "取消",
 	tooShort: "密碼至少需要 {n} 個字元。",
+	shortPwHint: "至少 4 個字元。8 個以上更安全:取得 data.json 副本的人能很快猜出短密碼。",
 	mismatch: "兩次輸入的新密碼不一致。",
 	saved: "密碼已儲存。",
 	removed: "密碼已移除。",

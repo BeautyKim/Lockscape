@@ -39,6 +39,7 @@ const de: Strings = {
 	save: "Speichern",
 	cancel: "Abbrechen",
 	tooShort: "Das Passwort muss mindestens {n} Zeichen lang sein.",
+	shortPwHint: "Mindestens 4 Zeichen. 8 oder mehr sind sicherer: Wer eine Kopie von data.json hat, kann ein kurzes Passwort schnell erraten.",
 	mismatch: "Die neuen Passwörter stimmen nicht überein.",
 	saved: "Passwort gespeichert.",
 	removed: "Passwort entfernt.",

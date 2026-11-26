@@ -64,7 +64,7 @@ import {
 	type UnlockResult,
 } from "./lockscreen";
 
-const MIN_PASSWORD_LENGTH = 8;
+const MIN_PASSWORD_LENGTH = 4; // short ones are allowed with a warning: see t.shortPwHint
 const FREE_ATTEMPTS = 5; // wrong guesses before back-off starts
 const BACKOFF_BASE_MS = 30_000; // doubles per further failure
 const BACKOFF_MAX_MS = 15 * 60_000;
@@ -1118,7 +1118,7 @@ class PasswordModal extends Modal {
 
 		if (this.mode !== "set" && this.mode !== "reset") field(t.current, (v) => (this.current = v));
 		if (this.mode !== "remove" && this.mode !== "recovery") {
-			field(t.newPw, (v) => (this.next = v));
+			field(t.newPw, (v) => (this.next = v)).setDesc(t.shortPwHint);
 			field(t.confirmPw, (v) => (this.confirm = v));
 		}
 
