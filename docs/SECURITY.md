@@ -8,7 +8,7 @@ For auditors and the cautious. Lockscape is a **screen lock**; it does not encry
 |---|---|
 | Runtime dependencies | **0** (only the `obsidian` API, provided by the app) |
 | Network access | **None** (no fetch/XHR/WebSocket; verify: `grep -nE "fetch\(|XMLHttpRequest|WebSocket|sendBeacon|eval\(|new Function|innerHTML" main.js`). Images/videos are only ever local files chosen with the OS picker; videos are checked via a local `blob:` URL; the CSS contains only inline `data:` SVGs |
-| Node/Electron APIs | No `fs`/network/child-process use. The plugin is **desktop only** (`isDesktopOnly: true`) because it uses Electron's window and power-monitor objects (below). **One optional, desktop-only exception:** the *shrink window* feature calls the window geometry methods (`getBounds`, `getNormalBounds`, `setBounds`, `isMaximized`, `isFullScreen`, `maximize`, `unmaximize`) on Obsidian's own Electron window (`window.electronWindow`, falling back to `require("electron").remote`). **A second optional one:** *lock when the computer locks or sleeps* listens to `remote.powerMonitor` (`lock-screen`, `suspend`) and does nothing if the app does not expose it. Both are guarded by `Platform.isDesktopApp`; no-ops on mobile. See `src/windowSize.ts` |
+| Node/Electron APIs | No `fs`/network/child-process use. The plugin is **desktop only** (`isDesktopOnly: true`) because it uses Electron's window and power-monitor objects (below). **One optional, desktop-only exception:** the *shrink window* feature calls the window geometry methods (`getBounds`, `getNormalBounds`, `setBounds`, `isMaximized`, `isFullScreen`, `maximize`, `unmaximize`) on Obsidian's own Electron window (`window.electronWindow`, falling back to `require("electron").remote`). **A second optional one:** *lock when the computer locks or sleeps* listens to `remote.powerMonitor` (`lock-screen`, `suspend`) and does nothing if the app does not expose it. Both are guarded by `Platform.isDesktopApp`. **A third use is part of the lock itself** (not optional): while locked or covered, and to decide whether the owner has left the app, it calls `remote.BrowserWindow.getAllWindows` and `getFocusedWindow` and, per window, `id`, `isVisible`, `isDestroyed`, `hide`, `showInactive` and `webContents.getOSProcessId` (see *Windows the overlay cannot cover*). All Electron use is in `src/windowSize.ts` |
 | Source | `src/crypto.ts` (hashing), `src/lockscreen.ts` (overlay), `src/main.ts` (lifecycle, settings), `src/themes.ts` (theme list, high-score parsing), `src/games/*` (the three offline canvas games and their host), `src/i18n/*` (strings) |
 | Build | `npm ci && npm run build` → `main.js` (unminified, readable). Dev deps are pinned by `package-lock.json` |
 | Stored data | `.obsidian/plugins/lockscape/data.json`: PBKDF2-SHA256 hash (600k iterations, 16-byte random salt, NFKC-normalised password), settings, failed-attempt counter, **to-do items (plain text)**, a capped activity log (see below) |
@@ -41,3 +41,15 @@ Behaviour worth knowing:
   3. Start Obsidian: the lock is off. Set a new password in *Settings → Lockscape*.
   4. In a company setting, write down who may do this and where the step is logged (the activity log does not record it; use the vault's file history).
 - Popout windows are covered too. Modals and notices created while locked are made `inert`.
+
+### Windows the overlay cannot cover (since 0.1.7)
+
+Obsidian opens some screens as windows of their own: Settings, the community plugin browser and dialogs opened from them. The overlay is drawn inside the main window and pop-outs, so it cannot cover those. **Up to 0.1.6 they stayed usable behind the lock**: the community plugin browser survived locking, and Settings opened while locked (for example from the macOS menu bar) was fully usable, so the plugin could be turned off.
+
+Since 0.1.7, while the screen is locked or covered:
+- every visible window of this vault that the overlay does not cover is **hidden**, checked right after locking and then every 200 ms, so a window opened later is hidden too;
+- only windows of the same renderer process are touched (one vault is one process), so other vaults are left alone;
+- windows are never closed and their content is never read; they are shown again after unlock, and when the plugin is turned off;
+- a grace-period cover hides them only after it has lasted 400 ms, and a focused window of this vault does not count as leaving the app (macOS reports a main window fully covered by Settings as hidden).
+
+Limits: a new window can be visible for a very brief moment (up to the 200 ms check); if Electron's `remote` object is unavailable, windows are not hidden. Tested on macOS by opening these windows through Obsidian's own commands; the menu bar itself was not clicked, and Windows has not been tested.

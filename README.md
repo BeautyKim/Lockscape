@@ -65,7 +65,7 @@ Requires Obsidian 1.13.0 or newer (older apps are offered version 0.1.2, which s
 - **No network**: Lockscape makes no network requests, has no telemetry, shows no ads, installs or updates nothing by itself, and is not obfuscated.
 - **Files**: it reads and writes only its own plugin folder (`data.json`, and a copy of the background photo or video you pick) and reads the one file you choose in the system file picker. It does not read your notes or anything else.
 - **What `data.json` holds**: the password and recovery key as salted PBKDF2 hashes (never in plain text), your settings, the failed-attempt counter, the activity log, to-do items (plain text) and game best scores. It syncs with your vault if you sync the plugin folder.
-- **Desktop APIs**: the optional *shrink window* and *lock when the computer locks or sleeps* features use Electron's window and power-monitor objects, which is why the plugin is desktop only.
+- **Desktop APIs**: Lockscape uses a few parts of Electron, which is why it is desktop only. While the screen is locked or covered it **lists the open windows and hides the ones of this vault that the lock screen cannot cover** (Settings, the community plugin browser and other windows Obsidian opens on its own), and shows them again afterwards. It never closes them or reads what is in them, and other vaults' windows are left alone. The optional *shrink window* and *lock when the computer locks or sleeps* features use the window and power-monitor objects.
 - **Clipboard**: Lockscape neither reads nor writes it. To copy the recovery key, select it and press Cmd/Ctrl+C.
 - **Account or payment**: none needed. Free and open source.
 
@@ -73,7 +73,7 @@ Requires Obsidian 1.13.0 or newer (older apps are offered version 0.1.2, which s
 
 **Does it encrypt my notes?** No. See the warning above.
 
-**Can someone just turn the plugin off?** Anyone who can edit the vault folder, or the plugin settings while Obsidian is unlocked, can. Lockscape closes the settings window and any password dialog the moment it locks, blocks Obsidian's hotkeys behind the lock screen, and covers pop-out windows too. A lock inside an app cannot stop someone with file access.
+**Can someone just turn the plugin off?** Anyone who can edit the vault folder, or the plugin settings while Obsidian is unlocked, can. Lockscape closes the settings window and any password dialog the moment it locks, blocks Obsidian's hotkeys behind the lock screen, covers pop-out windows, and keeps Settings, the community plugin browser and other windows it cannot cover hidden while locked (including ones opened from the menu bar after locking). It looks for new windows every 200 ms, so one can appear for a very brief moment before it is hidden. Versions before 0.1.7 did not hide these windows: please update. A lock inside an app cannot stop someone with file access.
 
 **Are the games safe to play on a lock screen?** They run only on the lock screen, offline, in plain canvas code, and never read the password you type. Keys go to the password field when it has focus (Tab moves there, Esc gives the keyboard back to the game).
 
