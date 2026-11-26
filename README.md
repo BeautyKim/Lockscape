@@ -89,7 +89,7 @@ The Windows 95 theme is a visual homage made from scratch. Lockscape is not affi
 
 ## Support
 
-Lockscape is free and open source, and every feature stays free. If it is useful to you, you can [buy me a coffee on Ko-fi](https://ko-fi.com/beauty_kim).
+☕ [GitHub Sponsors](https://github.com/sponsors/BeautyKim) · [Ko-fi](https://ko-fi.com/beauty_kim)
 
 ## License
 

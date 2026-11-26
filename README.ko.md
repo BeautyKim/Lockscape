@@ -89,7 +89,7 @@ Windows 95 테마는 직접 만든 오마주입니다. Lockscape는 Microsoft나
 
 ## 후원
 
-Lockscape는 무료 오픈 소스이며 모든 기능은 계속 무료입니다. 도움이 됐다면 [Ko-fi에서 커피 한 잔을 후원](https://ko-fi.com/beauty_kim)할 수 있습니다.
+☕ [GitHub Sponsors](https://github.com/sponsors/BeautyKim) · [Ko-fi](https://ko-fi.com/beauty_kim)
 
 ## 라이선스
 
