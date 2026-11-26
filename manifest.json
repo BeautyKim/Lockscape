@@ -6,5 +6,9 @@
   "description": "Password lock screen on startup, idle, focus loss and system lock, with themes, backgrounds and offline games. Desktop only. Does not encrypt files.",
   "author": "BeautyKim",
   "authorUrl": "https://github.com/BeautyKim",
+  "fundingUrl": {
+    "GitHub Sponsors": "https://github.com/sponsors/BeautyKim",
+    "Ko-fi": "https://ko-fi.com/beauty_kim"
+  },
   "isDesktopOnly": true
 }
