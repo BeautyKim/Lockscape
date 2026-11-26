@@ -157,6 +157,8 @@ class OverlayView {
 	private theme: Theme = "default";
 	private unlockLabel = "";
 	private recoveryOn = false;
+	private cardEl!: HTMLElement;
+	private formEl!: HTMLElement;
 	private forgotBtn!: HTMLButtonElement;
 	private baseTitle = "";
 	private unlockedTitle = "";
@@ -402,14 +404,34 @@ class OverlayView {
 		// Hidden password field: how far the to-dos may slide up into the empty space under the title (see styles.css).
 		// At least REVEAL_HOVER_ZONE px at the top of the card stay uncovered, so there is always something to hover.
 		const RO = (this.win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
-		this.slotObserver = RO
-			? new RO(() => {
-					const keep = Math.max(form.offsetTop - card.offsetTop, REVEAL_HOVER_ZONE);
-					root.style.setProperty("--vl-reveal-shift", `${Math.max(card.offsetHeight - keep, 0)}px`);
-				})
-			: null;
+		this.cardEl = card;
+		this.formEl = form;
+		this.slotObserver = RO ? new RO(() => this.measureRevealShift()) : null;
 		this.slotObserver?.observe(form);
 		this.slotObserver?.observe(card);
+		this.slotObserver?.observe(this.clockEl);
+		// Hidden field: "the pointer is on the lock card" is decided by position, not by :hover. The to-do panel slides
+		// across the card when the field shows; with :hover that took the pointer away, hid the field, slid the panel
+		// back and started over (flicker). On when the pointer enters the card, off only once it is outside the area from
+		// the card down to where the panel rests below it, so the pointer can travel to a to-do without the panel running off.
+		// The clock counts as part of that area: with the icon and title off, nothing else may be left above the panel.
+		for (const zone of [card, this.clockEl]) zone.addEventListener("pointerenter", () => root.classList.add("is-peek"));
+		root.addEventListener("pointermove", (e) => {
+			if (!root.classList.contains("is-peek")) return;
+			const box = card.getBoundingClientRect();
+			// layout positions, so a panel that is still sliding does not change the area
+			const panel = this.todosEl.offsetHeight ? this.todosEl.offsetTop - card.offsetTop + this.todosEl.offsetHeight : 0;
+			const bottom = Math.max(box.bottom, box.top + panel);
+			const top = this.clockEl.offsetHeight ? Math.min(box.top, this.clockEl.getBoundingClientRect().top) : box.top;
+			if (e.clientX < box.left || e.clientX > box.right || e.clientY < top || e.clientY > bottom) root.classList.remove("is-peek");
+		});
+		root.addEventListener("pointerleave", () => root.classList.remove("is-peek", "is-todos-held"));
+		// A panel that is down when the pointer reaches it stays down while the pointer is on it, so it never slides
+		// away from under a click (for example when the click takes the focus out of the password field).
+		this.todosEl.addEventListener("pointerenter", () => {
+			if (this.win.getComputedStyle(this.todosEl).transform === "none") root.classList.add("is-todos-held");
+		});
+		this.todosEl.addEventListener("pointerleave", () => root.classList.remove("is-todos-held"));
 		// Typed text keeps a hidden field visible wherever the focus goes; the to-dos must not slide over it then.
 		input.addEventListener("input", () => this.syncTyped());
 
@@ -526,6 +548,7 @@ class OverlayView {
 		for (const el of this.inerted) (el as HTMLElement).inert = false;
 		this.inerted.clear();
 		this.root.remove();
+		this.root.classList.remove("is-peek", "is-todos-held");
 		this.root.style.removeProperty("top");
 		this.root.style.removeProperty("height");
 		this.input.value = "";
@@ -580,6 +603,7 @@ class OverlayView {
 		this.root.classList.toggle("is-preview", preview);
 		this.input.disabled = cover || preview;
 		this.button.disabled = cover || preview;
+		this.measureRevealShift();
 		// The game runs only while the screen is really up (locked or previewed), never under the grace-period cover.
 		this.host?.setActive(mode === "locked" || preview);
 	}
@@ -941,6 +965,18 @@ class OverlayView {
 		this.todosEl.classList.toggle("is-short", todos.length <= 1);
 		const addForm = this.todosEl.querySelector<HTMLElement>(".vault-lock-todo-add");
 		addForm?.classList.toggle("is-off", todos.length >= MAX_TODOS);
+	}
+
+	/**
+	 * How far the to-dos may slide up while the password field is hidden: to just under whatever is visible above the
+	 * field (icon, title, preview hint). Only when neither the card nor the clock shows anything there is a strip of the
+	 * card left uncovered, so there is still something to hover.
+	 */
+	private measureRevealShift(): void {
+		const above = this.formEl.offsetTop - this.cardEl.offsetTop;
+		const somethingToHover = above >= 24 || this.clockEl.offsetHeight > 0;
+		const keep = somethingToHover ? Math.max(above, 0) : REVEAL_HOVER_ZONE;
+		this.root.style.setProperty("--vl-reveal-shift", `${Math.max(this.cardEl.offsetHeight - keep, 0)}px`);
 	}
 
 	syncTyped(): void {

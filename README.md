@@ -52,7 +52,7 @@ Requires Obsidian 1.13.0 or newer (older apps are offered version 0.1.2, which s
 | Separate settings on this device | Keeps the auto-lock options of this computer local; they are not synced |
 | Recovery key | Create or replace the recovery key (asks for the current password) |
 | Appearance | Theme, background (none, photo, video), animation, clock, text and accent colour, layout, field shape |
-| Shrink window while locked | Window size 380×520, 460×620 or 560×720 while locked |
+| Shrink window while locked | Window size 380×520, 460×620, 560×720 or 660×820 while locked |
 
 ## Wrong passwords and recovery
 

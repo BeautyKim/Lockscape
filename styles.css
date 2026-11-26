@@ -305,6 +305,8 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 .vault-lock-todo-list {
 	flex: 1 1 auto;
 	min-height: 0;
+	/* five rows, then the list scrolls: a long list must not stretch the lock window */
+	max-height: calc(5 * var(--vl-todo-row, 36px));
 	overflow-y: auto;
 }
 
@@ -389,6 +391,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 
 /* Touch screens: every to-do control is at least 44px, the size the password field and unlock button already keep. */
 @media (pointer: coarse) {
+	.vault-lock-todo-list { --vl-todo-row: 44px; }
 	.vault-lock-todo { min-height: 44px; }
 	.vault-lock-todo-label { min-height: 44px; }
 	.vault-lock-todo-label input[type="checkbox"] { width: 24px; height: 24px; }
@@ -422,7 +425,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	transition: opacity 0.25s ease;
 }
 
-.vault-lock-overlay.hover-reveal .vault-lock-card:hover .vault-lock-form > :is(.vault-lock-input, .vault-lock-button),
+.vault-lock-overlay.hover-reveal.is-peek .vault-lock-form > :is(.vault-lock-input, .vault-lock-button),
 .vault-lock-overlay.hover-reveal .vault-lock-form:focus-within > :is(.vault-lock-input, .vault-lock-button),
 .vault-lock-overlay.hover-reveal .vault-lock-form > .vault-lock-input:not(:placeholder-shown),
 .vault-lock-overlay.hover-reveal .vault-lock-form > .vault-lock-input:not(:placeholder-shown) ~ .vault-lock-button,
@@ -457,7 +460,7 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 .vault-lock-overlay.has-recovery:not(.is-cover):not(.is-preview) .vault-lock-forgot { display: block; }
 /* hidden-until-hover screens keep the link hidden too, until the field is revealed */
 .vault-lock-overlay.hover-reveal:not(.is-recovery) .vault-lock-forgot { opacity: 0; }
-.vault-lock-overlay.hover-reveal .vault-lock-card:hover .vault-lock-forgot,
+.vault-lock-overlay.hover-reveal.is-peek .vault-lock-forgot,
 .vault-lock-overlay.hover-reveal .vault-lock-forgot:focus-visible { opacity: 0.75; }
 @media (pointer: coarse) { .vault-lock-overlay .vault-lock-forgot { min-height: 44px; } }
 
@@ -476,6 +479,9 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 .vault-lock-overlay.is-preview .vault-lock-hint {
 	display: block;
 }
+
+/* hidden field in preview: the "how to close" line goes above the field, where the sliding to-dos do not reach */
+.vault-lock-overlay.is-preview.hover-reveal .vault-lock-card > :is(.vault-lock-form, .vault-lock-forgot, .vault-lock-message) { order: 1; }
 
 .vault-lock-overlay.is-preview .vault-lock-todos {
 	cursor: auto;
@@ -534,23 +540,13 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 /* ---- tight spaces ------------------------------------------------------------------------- */
 
 /* Landscape phones: put the to-do panel beside the clock + lock card instead of stacking. */
+/* A low window keeps the single centred column (no side-by-side layout: this plugin is desktop only, and a window
+ * resized low would scatter the clock, the card and the to-dos). Smaller clock and tighter gaps; the list shrinks. */
 @media (orientation: landscape) and (max-height: 520px) {
 	.vault-lock-stage { gap: 10px; }
 	.vault-lock-time { font-size: clamp(2rem, 9vh, 3rem); }
 	.vault-lock-icon svg { width: 28px; height: 28px; }
 	.vault-lock-card { gap: 8px; }
-	.vault-lock-stage.has-todos {
-		width: min(100%, 780px);
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		grid-template-areas: "clock todos" "card todos";
-		gap: 10px 28px;
-		align-items: center;
-		justify-items: center;
-	}
-	.vault-lock-stage.has-todos .vault-lock-clock { grid-area: clock; }
-	.vault-lock-stage.has-todos .vault-lock-card { grid-area: card; max-width: 340px; }
-	.vault-lock-stage.has-todos .vault-lock-todos { grid-area: todos; max-height: calc(100vh - 48px); }
 }
 
 /* Small portrait phones: keep clock + lock card + to-do panel on the first screen. */
@@ -1145,17 +1141,22 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	.vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-card { gap: 8px; }
 	.vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-log { display: none; }
 }
+@media (max-height: 400px) {
+	.vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-icon { display: none; }
+	.vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-date { display: none; }
+}
 /* too small even so: the stage scrolls inside its frame, nothing is cut off */
-.vault-lock-overlay .vault-lock-stage.has-todos { overflow-y: auto; }
+/* "safe": centred while it fits; when it does not, it starts at the top, so the clock is never pushed out of reach */
+.vault-lock-overlay[data-theme] .vault-lock-stage.has-todos { overflow-y: auto; justify-content: safe center; } /* [data-theme]: must outrank the narrow-window rule */
+.vault-lock-overlay .vault-lock-stage.has-todos > * { flex-shrink: 0; }
+.vault-lock-overlay .vault-lock-stage.has-todos > .vault-lock-todos:not(.is-short) { flex-shrink: 1; }
 @media (max-height: 540px) { .vault-lock-overlay .vault-lock-stage.has-todos, .vault-lock-overlay .vault-lock-stage.has-todos .vault-lock-card { gap: 6px; } }
 
 /* ---- hidden password field + to-dos: while the field is invisible, the to-dos slide up into its empty space ----
  * Only the to-do panel moves (a transform, so nothing re-flows): the card keeps its size and stays under the pointer.
  * --vl-reveal-shift is measured in lockscreen.ts. The selector is the opposite of the "reveal" rules above. */
 .vault-lock-overlay.hover-reveal .vault-lock-todos { transition: transform 0.25s ease; }
-.vault-lock-overlay.hover-reveal:not(.is-recovery):not(.has-message):not(.is-busy):not(.has-typed):not(.is-unlocking) .vault-lock-card:not(:hover):not(:focus-within) ~ .vault-lock-todos {
+.vault-lock-overlay.hover-reveal:not(.is-peek):not(.is-todos-held):not(.is-recovery):not(.has-message):not(.is-busy):not(.has-typed):not(.is-unlocking) .vault-lock-card:not(:focus-within) ~ .vault-lock-todos {
 	transform: translateY(calc(-1 * var(--vl-reveal-shift, 0px)));
 }
 @media (prefers-reduced-motion: reduce) { .vault-lock-overlay.hover-reveal .vault-lock-todos { transition: none; } }
-/* side by side (low landscape window): the to-dos are next to the card, there is nothing to move into */
-@media (orientation: landscape) and (max-height: 520px) { .vault-lock-overlay.hover-reveal .vault-lock-card ~ .vault-lock-todos { transform: none !important; } }

@@ -264,7 +264,7 @@ const dims = [
   { name: "accent", values: [V("auto", {}), V("green", S({ accentColor: "#00ff66" }))] },
   { name: "obsidian", values: [V("light", { obsidian: "light" }), V("dark", { obsidian: "dark" })] },
   { name: "motion", values: [V("normal", {}), V("reduced", { reduced: true })] },
-  { name: "viewport", values: [[0, 0], [1920, 1080], [700, 480], [560, 720], [460, 620], [380, 520], [390, 760], [360, 640], [320, 568], [844, 390], [568, 320]].map(([w, h]) => V(w ? w + "x" + h : "window", { viewport: w ? { w, h } : null })) },
+  { name: "viewport", values: [[0, 0], [1920, 1080], [700, 480], [660, 820], [560, 720], [460, 620], [380, 520], [390, 760], [360, 640], [320, 568], [844, 390], [568, 320]].map(([w, h]) => V(w ? w + "x" + h : "window", { viewport: w ? { w, h } : null })) },
 ];
 
 function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -290,7 +290,7 @@ for (let s = 0; s < seeds; s++) pairwise(dims, 1000 + s).forEach((row) => config
 const themeDim = dims[0], vpDim = dims[dims.length - 1];
 themeDim.values.forEach((t, ti) => vpDim.values.forEach((v, vi) => ["light", "dark"].forEach((mode) => { const cfg = build(dims.map((d, i) => (i === 0 ? ti : i === dims.length - 1 ? vi : d.name === "obsidian" ? (mode === "dark" ? 1 : 0) : 0)), dims); cfg.sweep = true; configs.push(cfg); })));
 if (only) { const [k, v] = only.split("="); configs = configs.filter((c) => c.labels[k] === v); }
-const REAL_SIZES = { small: [380, 520], medium: [460, 620], large: [560, 720] };
+const REAL_SIZES = { small: [380, 520], medium: [460, 620], large: [560, 720], xlarge: [660, 820] };
 if (realMode) {
   configs = [];
   for (const t of themeDim.values) for (const size of Object.keys(REAL_SIZES)) for (const bg of [0, 3]) {

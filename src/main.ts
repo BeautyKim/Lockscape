@@ -40,10 +40,14 @@ import { MAX_SCORE, THEMES, emptyHighScores, mergeHighScores, parseHighScores, p
 import {
 	WINDOW_SIZES,
 	WINDOW_SIZE_NAMES,
+	hideOtherWindows,
+	ownWindowFocused,
 	isSavedWindow,
 	restoreWindow,
+	showWindows,
 	shrinkWindow,
 	watchSystemLock,
+	windowIdOf,
 	windowResizeSupported,
 	type SavedWindow,
 	type WindowSizeName,
@@ -163,6 +167,9 @@ const DEFAULTS: Settings = {
 	lockedAtExit: false,
 };
 
+/** A grace-period cover hides other windows only once it has lasted this long (see guardWindows). */
+const COVER_HIDE_DELAY_MS = 400;
+
 const DEVICE_ONLY_KEY = "lockscape-device-only";
 const DEVICE_VALUES_KEY = "lockscape-device-values";
 
@@ -228,6 +235,8 @@ export default class VaultLockPlugin extends Plugin {
 	/** The shared (data.json) values of the device keys while `deviceOnly` is on, so saving never overwrites them. */
 	private sharedDevice: DeviceValues = {};
 	private stopSystemLock: (() => void) | null = null;
+	/** Windows hidden while locked (Settings, the community plugin browser, ...), to show again afterwards. */
+	private readonly hiddenWindows = new Set<number>();
 
 	get hasPassword(): boolean {
 		return this.settings.credential !== null;
@@ -247,6 +256,24 @@ export default class VaultLockPlugin extends Plugin {
 	private closeOwnerDialogs(): void {
 		this.passwordModal?.close();
 		(this.app as App & { setting?: { close?: () => void } }).setting?.close?.();
+	}
+
+	/** While the screen is locked or covered, windows the overlay does not cover stay hidden; afterwards they return. */
+	private guardWindows(): void {
+		if (!this.isLockActive) {
+			showWindows(this.hiddenWindows);
+			return;
+		}
+		// The grace-period cover can come and go within a moment while windows change places. Covering costs nothing, but
+		// making the owner's Settings window vanish does, so wait until the cover has stayed.
+		const briefCover = this.lockScreen.isCovering && !this.lockScreen.isManualCover && this.hiddenAt !== null && Date.now() - this.hiddenAt < COVER_HIDE_DELAY_MS;
+		if (briefCover) return;
+		const covered = new Set<number>();
+		for (const doc of this.collectDocuments()) {
+			const id = windowIdOf(doc);
+			if (id !== null) covered.add(id);
+		}
+		hideOtherWindows(covered, this.hiddenWindows);
 	}
 
 	/** The lock screen or the grace-period cover is up. Settings must not change then. */
@@ -306,6 +333,8 @@ export default class VaultLockPlugin extends Plugin {
 			onLock: () => {
 				this.rememberLocked(true);
 				this.closeOwnerDialogs();
+				// after the overlays are up (this hook runs just before they render)
+				window.setTimeout(() => this.guardWindows(), 0);
 			},
 			keymap: this.app.keymap,
 		});
@@ -343,6 +372,15 @@ export default class VaultLockPlugin extends Plugin {
 			}),
 		);
 		this.registerInterval(window.setInterval(() => this.checkIdle(), 5_000));
+		// A window can appear while locked (menu bar, another plugin), so keep looking.
+		this.registerInterval(
+			window.setInterval(() => {
+				// With our own window in front of a hidden main window, switching to another app sends no new event:
+				// while nothing of the app is in view, keep asking whether the owner has left.
+				if (this.hiddenAt !== null || this.allWindowsHidden()) this.onVisibility();
+				this.guardWindows();
+			}, 200),
+		);
 		// After sleep the 5 s timer can lag; the window coming back is the earlier signal.
 		this.registerDomEvent(window, "focus", () => this.checkIdle());
 		this.registerDomEvent(window, "pageshow", () => this.checkIdle());
@@ -351,6 +389,7 @@ export default class VaultLockPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		showWindows(this.hiddenWindows);
 		this.stopSystemLock?.();
 		this.lockScreen?.destroy();
 	}
@@ -597,8 +636,12 @@ export default class VaultLockPlugin extends Plugin {
 	 * focus. Obsidian's Settings window counts as the app, so using it never covers the notes.
 	 */
 	private isAway(): boolean {
-		if (this.allWindowsHidden()) return true;
-		if (!this.settings.coverOnBlur) return false;
+		const hidden = this.allWindowsHidden();
+		if (!hidden && !this.settings.coverOnBlur) return false;
+		// Settings or the plugin browser in front can make the main window count as hidden (macOS reports a fully covered
+		// window as hidden, and flips it back and forth): while one of our own windows has the focus, nobody has left.
+		if (ownWindowFocused()) return false;
+		if (hidden) return true;
 		if (this.collectDocuments().some((d) => d.hasFocus())) return false;
 		// In Obsidian 1.x the Settings window is a modal of its own window: its `modalEl` lives in that window's document.
 		const settingsDoc = (this.app as App & { setting?: { isOpen?: boolean; modalEl?: HTMLElement } }).setting?.modalEl?.ownerDocument;

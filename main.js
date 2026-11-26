@@ -2089,7 +2089,8 @@ var import_obsidian = require("obsidian");
 var WINDOW_SIZES = {
   small: { width: 380, height: 520 },
   medium: { width: 460, height: 620 },
-  large: { width: 560, height: 720 }
+  large: { width: 560, height: 720 },
+  xlarge: { width: 660, height: 820 }
 };
 var WINDOW_SIZE_NAMES = Object.keys(WINDOW_SIZES);
 function remote() {
@@ -2188,6 +2189,44 @@ function watchSystemLock(onLock) {
     } catch {
     }
   };
+}
+function windowIdOf(doc) {
+  const w = doc.defaultView?.electronWindow;
+  return typeof w?.id === "number" ? w.id : null;
+}
+function hideOtherWindows(keep, hidden) {
+  const all = remote()?.BrowserWindow;
+  const me = electronWindow();
+  if (!all || !me) return;
+  try {
+    const process = me.webContents.getOSProcessId();
+    for (const w of all.getAllWindows()) {
+      if (w.id === me.id || keep.has(w.id) || w.isDestroyed() || !w.isVisible()) continue;
+      if (w.webContents.getOSProcessId() !== process) continue;
+      w.hide();
+      hidden.add(w.id);
+    }
+  } catch {
+  }
+}
+function showWindows(hidden) {
+  if (hidden.size === 0) return;
+  try {
+    for (const w of remote()?.BrowserWindow?.getAllWindows() ?? []) {
+      if (hidden.has(w.id) && !w.isDestroyed()) w.showInactive();
+    }
+  } catch {
+  }
+  hidden.clear();
+}
+function ownWindowFocused() {
+  try {
+    const focused = remote()?.BrowserWindow?.getFocusedWindow?.();
+    const me = electronWindow();
+    return !!focused && !!me && focused.webContents.getOSProcessId() === me.webContents.getOSProcessId();
+  } catch {
+    return false;
+  }
 }
 
 // src/lockscreen.ts
@@ -3851,12 +3890,26 @@ var OverlayView = class {
       this.onViewport = null;
     }
     const RO = this.win.ResizeObserver;
-    this.slotObserver = RO ? new RO(() => {
-      const keep = Math.max(form.offsetTop - card.offsetTop, REVEAL_HOVER_ZONE);
-      root.style.setProperty("--vl-reveal-shift", `${Math.max(card.offsetHeight - keep, 0)}px`);
-    }) : null;
+    this.cardEl = card;
+    this.formEl = form;
+    this.slotObserver = RO ? new RO(() => this.measureRevealShift()) : null;
     this.slotObserver?.observe(form);
     this.slotObserver?.observe(card);
+    this.slotObserver?.observe(this.clockEl);
+    for (const zone of [card, this.clockEl]) zone.addEventListener("pointerenter", () => root.classList.add("is-peek"));
+    root.addEventListener("pointermove", (e) => {
+      if (!root.classList.contains("is-peek")) return;
+      const box = card.getBoundingClientRect();
+      const panel = this.todosEl.offsetHeight ? this.todosEl.offsetTop - card.offsetTop + this.todosEl.offsetHeight : 0;
+      const bottom = Math.max(box.bottom, box.top + panel);
+      const top = this.clockEl.offsetHeight ? Math.min(box.top, this.clockEl.getBoundingClientRect().top) : box.top;
+      if (e.clientX < box.left || e.clientX > box.right || e.clientY < top || e.clientY > bottom) root.classList.remove("is-peek");
+    });
+    root.addEventListener("pointerleave", () => root.classList.remove("is-peek", "is-todos-held"));
+    this.todosEl.addEventListener("pointerenter", () => {
+      if (this.win.getComputedStyle(this.todosEl).transform === "none") root.classList.add("is-todos-held");
+    });
+    this.todosEl.addEventListener("pointerleave", () => root.classList.remove("is-todos-held"));
     input.addEventListener("input", () => this.syncTyped());
     this.onVis = () => {
       const v = this.video;
@@ -3956,6 +4009,7 @@ var OverlayView = class {
     for (const el of this.inerted) el.inert = false;
     this.inerted.clear();
     this.root.remove();
+    this.root.classList.remove("is-peek", "is-todos-held");
     this.root.style.removeProperty("top");
     this.root.style.removeProperty("height");
     this.input.value = "";
@@ -4006,6 +4060,7 @@ var OverlayView = class {
     this.root.classList.toggle("is-preview", preview);
     this.input.disabled = cover || preview;
     this.button.disabled = cover || preview;
+    this.measureRevealShift();
     this.host?.setActive(mode === "locked" || preview);
   }
   /** Another window's game set a new best: this window's game shows it too. */
@@ -4334,6 +4389,17 @@ var OverlayView = class {
     this.todosEl.classList.toggle("is-short", todos.length <= 1);
     const addForm = this.todosEl.querySelector(".vault-lock-todo-add");
     addForm?.classList.toggle("is-off", todos.length >= MAX_TODOS);
+  }
+  /**
+   * How far the to-dos may slide up while the password field is hidden: to just under whatever is visible above the
+   * field (icon, title, preview hint). Only when neither the card nor the clock shows anything there is a strip of the
+   * card left uncovered, so there is still something to hover.
+   */
+  measureRevealShift() {
+    const above = this.formEl.offsetTop - this.cardEl.offsetTop;
+    const somethingToHover = above >= 24 || this.clockEl.offsetHeight > 0;
+    const keep = somethingToHover ? Math.max(above, 0) : REVEAL_HOVER_ZONE;
+    this.root.style.setProperty("--vl-reveal-shift", `${Math.max(this.cardEl.offsetHeight - keep, 0)}px`);
   }
   syncTyped() {
     this.root.classList.toggle("has-typed", this.input.value !== "");
@@ -4685,6 +4751,7 @@ var DEFAULTS = {
   log: [],
   lockedAtExit: false
 };
+var COVER_HIDE_DELAY_MS = 400;
 var DEVICE_ONLY_KEY = "lockscape-device-only";
 var DEVICE_VALUES_KEY = "lockscape-device-values";
 var IDLE_CHOICES = [0, 1, 5, 10, 15, 30, 60];
@@ -4759,6 +4826,8 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
     /** The shared (data.json) values of the device keys while `deviceOnly` is on, so saving never overwrites them. */
     this.sharedDevice = {};
     this.stopSystemLock = null;
+    /** Windows hidden while locked (Settings, the community plugin browser, ...), to show again afterwards. */
+    this.hiddenWindows = /* @__PURE__ */ new Set();
     this.watchedWindows = /* @__PURE__ */ new WeakSet();
   }
   get hasPassword() {
@@ -4777,6 +4846,21 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
   closeOwnerDialogs() {
     this.passwordModal?.close();
     this.app.setting?.close?.();
+  }
+  /** While the screen is locked or covered, windows the overlay does not cover stay hidden; afterwards they return. */
+  guardWindows() {
+    if (!this.isLockActive) {
+      showWindows(this.hiddenWindows);
+      return;
+    }
+    const briefCover = this.lockScreen.isCovering && !this.lockScreen.isManualCover && this.hiddenAt !== null && Date.now() - this.hiddenAt < COVER_HIDE_DELAY_MS;
+    if (briefCover) return;
+    const covered = /* @__PURE__ */ new Set();
+    for (const doc of this.collectDocuments()) {
+      const id = windowIdOf(doc);
+      if (id !== null) covered.add(id);
+    }
+    hideOtherWindows(covered, this.hiddenWindows);
   }
   /** The lock screen or the grace-period cover is up. Settings must not change then. */
   get isLockActive() {
@@ -4827,6 +4911,7 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
       onLock: () => {
         this.rememberLocked(true);
         this.closeOwnerDialogs();
+        window.setTimeout(() => this.guardWindows(), 0);
       },
       keymap: this.app.keymap
     });
@@ -4855,11 +4940,18 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
       })
     );
     this.registerInterval(window.setInterval(() => this.checkIdle(), 5e3));
+    this.registerInterval(
+      window.setInterval(() => {
+        if (this.hiddenAt !== null || this.allWindowsHidden()) this.onVisibility();
+        this.guardWindows();
+      }, 200)
+    );
     this.registerDomEvent(window, "focus", () => this.checkIdle());
     this.registerDomEvent(window, "pageshow", () => this.checkIdle());
     this.syncSystemLock();
   }
   onunload() {
+    showWindows(this.hiddenWindows);
     this.stopSystemLock?.();
     this.lockScreen?.destroy();
   }
@@ -5074,8 +5166,10 @@ var VaultLockPlugin = class extends import_obsidian3.Plugin {
    * focus. Obsidian's Settings window counts as the app, so using it never covers the notes.
    */
   isAway() {
-    if (this.allWindowsHidden()) return true;
-    if (!this.settings.coverOnBlur) return false;
+    const hidden = this.allWindowsHidden();
+    if (!hidden && !this.settings.coverOnBlur) return false;
+    if (ownWindowFocused()) return false;
+    if (hidden) return true;
     if (this.collectDocuments().some((d) => d.hasFocus())) return false;
     const settingsDoc = this.app.setting?.modalEl?.ownerDocument;
     return !(settingsDoc && settingsDoc !== window.document && settingsDoc.hasFocus());

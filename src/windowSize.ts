@@ -21,6 +21,7 @@ export const WINDOW_SIZES = {
 	small: { width: 380, height: 520 },
 	medium: { width: 460, height: 620 },
 	large: { width: 560, height: 720 },
+	xlarge: { width: 660, height: 820 },
 } as const;
 
 export type WindowSizeName = keyof typeof WINDOW_SIZES;
@@ -48,7 +49,17 @@ interface PowerMonitor {
 	removeListener(event: string, listener: () => void): unknown;
 }
 
+interface OtherWindow {
+	id: number;
+	isDestroyed(): boolean;
+	isVisible(): boolean;
+	hide(): void;
+	showInactive(): void;
+	webContents: { getOSProcessId(): number };
+}
+
 interface ElectronRemote {
+	BrowserWindow?: { getAllWindows(): OtherWindow[]; getFocusedWindow?(): OtherWindow | null };
 	getCurrentWindow?: () => ElectronWindow;
 	powerMonitor?: PowerMonitor;
 	screen?: { getDisplayMatching(b: Bounds): { workArea: Rect } };
@@ -180,4 +191,62 @@ export function watchSystemLock(onLock: () => void): () => void {
 			/* window gone */
 		}
 	};
+}
+
+/** The Electron window id behind a document, or null. Every Obsidian window of a vault has one. */
+export function windowIdOf(doc: Document): number | null {
+	const w = (doc.defaultView as unknown as { electronWindow?: { id?: unknown } } | null)?.electronWindow;
+	return typeof w?.id === "number" ? w.id : null;
+}
+
+/**
+ * While locked: hide every visible window of this vault that the lock screen does not cover. Obsidian opens some of
+ * its screens as windows of their own (Settings, the community plugin browser, dialogs from them), and the macOS menu
+ * bar can open them while locked. One vault is one renderer process, so other vaults' windows are never touched.
+ * Windows are hidden, never closed: nothing is lost, and `showWindows` brings them back after unlock.
+ * @param keep ids of the covered windows (the main window and workspace popouts)
+ * @param hidden collects the ids hidden here
+ */
+export function hideOtherWindows(keep: ReadonlySet<number>, hidden: Set<number>): void {
+	const all = remote()?.BrowserWindow;
+	const me = electronWindow() as unknown as OtherWindow | null;
+	if (!all || !me) return;
+	try {
+		const process = me.webContents.getOSProcessId();
+		for (const w of all.getAllWindows()) {
+			if (w.id === me.id || keep.has(w.id) || w.isDestroyed() || !w.isVisible()) continue;
+			if (w.webContents.getOSProcessId() !== process) continue;
+			w.hide();
+			hidden.add(w.id);
+		}
+	} catch {
+		/* a window closed while we looked at it: the next pass sees the new list */
+	}
+}
+
+/** Show the windows `hideOtherWindows` hid (those still alive), without stealing focus. */
+export function showWindows(hidden: Set<number>): void {
+	if (hidden.size === 0) return;
+	try {
+		for (const w of remote()?.BrowserWindow?.getAllWindows() ?? []) {
+			if (hidden.has(w.id) && !w.isDestroyed()) w.showInactive();
+		}
+	} catch {
+		/* nothing to restore */
+	}
+	hidden.clear();
+}
+
+/**
+ * True when some window of this vault has the keyboard focus: the main window, a popout, or one Obsidian opened itself
+ * (Settings, the community plugin browser). False when another app or vault is in front, or when it cannot be told.
+ */
+export function ownWindowFocused(): boolean {
+	try {
+		const focused = remote()?.BrowserWindow?.getFocusedWindow?.();
+		const me = electronWindow() as unknown as OtherWindow | null;
+		return !!focused && !!me && focused.webContents.getOSProcessId() === me.webContents.getOSProcessId();
+	} catch {
+		return false;
+	}
 }
