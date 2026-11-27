@@ -120,6 +120,7 @@ const en = {
 	resetAppearanceBtn: "Reset",
 	theme: "Theme",
 	themeDefault: "Default",
+	themeNone: "No theme (background only)",
 	themeWin95: "Windows 95",
 	themeTerminal: "Developer terminal",
 	themeSnake: "Handheld snake (game)",

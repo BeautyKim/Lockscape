@@ -120,6 +120,7 @@ const de: Strings = {
 	resetAppearanceBtn: "Zurücksetzen",
 	theme: "Design",
 	themeDefault: "Standard",
+	themeNone: "Kein Design (nur Hintergrund)",
 	themeWin95: "Windows 95",
 	themeTerminal: "Entwickler-Terminal",
 	themeSnake: "Handheld-Snake (Spiel)",

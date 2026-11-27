@@ -14,6 +14,7 @@ A password lock screen for [Obsidian](https://obsidian.md) on macOS and Windows.
 - **Locks when you want it to**: on startup, after 1 to 60 minutes without activity, when you leave the app, when the computer locks or sleeps, or by hand (ribbon icon or command).
 - **Grace period**: leave and come back within 30 seconds (adjustable, or off) and no password is asked.
 - **Six themes**: Default, Windows 95, developer terminal, and three offline games to play on the lock screen: handheld snake, neon breakout, folder runner. Each saves its best score.
+- **No theme**: no window or frame, just the clock and the password field on your photo or video. Turn off the clock and padlock and hide the field until hover to see only the picture.
 - **Your own look**: a photo or a short looping video as the background, dimming and blur, seven animations (some follow the mouse), clock size and font, colours, field shape. A **Preview** button shows the result without locking.
 - **Recovery key**: when you set a password you get a random key to write down. If you forget the password, *Forgot your password?* on the lock screen unlocks with it.
 - **Hide screen**: a command that covers everything at once, for example before you share your screen. It is not a lock: click or press Esc to show it again.

@@ -120,6 +120,7 @@ const fr: Strings = {
 	resetAppearanceBtn: "Réinitialiser",
 	theme: "Thème",
 	themeDefault: "Par défaut",
+	themeNone: "Aucun thème (fond seul)",
 	themeWin95: "Windows 95",
 	themeTerminal: "Terminal développeur",
 	themeSnake: "Snake console portable (jeu)",

@@ -120,6 +120,7 @@ const ja: Strings = {
 	resetAppearanceBtn: "リセット",
 	theme: "テーマ",
 	themeDefault: "標準",
+	themeNone: "テーマなし (背景のみ)",
 	themeWin95: "Windows 95",
 	themeTerminal: "開発者ターミナル",
 	themeSnake: "携帯ゲーム機スネーク (ゲーム)",

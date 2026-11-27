@@ -2,7 +2,7 @@
 // Three of them also run a small offline canvas game above the password field.
 // This file has no DOM or Obsidian imports on purpose: it is unit-tested in plain node.
 
-export const THEMES = ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "folder-runner"] as const;
+export const THEMES = ["default", "none", "win95", "terminal", "gameboy-snake", "neon-breakout", "folder-runner"] as const;
 export type Theme = (typeof THEMES)[number];
 
 export const GAME_IDS = ["snake", "breakout", "runner"] as const;
@@ -31,6 +31,7 @@ export interface ThemeText {
 
 export const THEME_TEXT: Readonly<Record<Theme, ThemeText>> = {
 	default: {},
+	none: {},
 	win95: { unlock: "UNLOCK", placeholder: "none" },
 	terminal: { unlock: "[UNLOCK]", title: "[ LOCKED ]", unlocked: "[ UNLOCKED ]", placeholder: "none" },
 	"gameboy-snake": { unlock: "PLAY & UNLOCK" },

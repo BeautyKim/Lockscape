@@ -54,7 +54,8 @@ const check = (name: string, ok: boolean) => { console.log((ok ? "PASS " : "FAIL
   check("clipChars: 60 emoji stay 60 characters", charCount(clipChars("😀".repeat(100), 60)) === 60);
 
   // themes
-  check("six themes", THEMES.length === 6 && THEMES[0] === "default");
+  check("seven themes, default first", THEMES.length === 7 && THEMES[0] === "default" && THEMES.includes("none"));
+  check("the no-theme option is not a game and keeps translated text", gameOf("none") === null && Object.keys(THEME_TEXT.none).length === 0);
   check("parseTheme keeps a known theme", parseTheme("win95") === "win95" && parseTheme("folder-runner") === "folder-runner");
   check("parseTheme moves the old runner id to the new one", parseTheme("obsidian-runner") === "folder-runner");
   check("parseTheme: retro/cartoon from older versions become default", parseTheme("retro") === "default" && parseTheme("cartoon") === "default");

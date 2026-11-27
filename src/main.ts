@@ -857,6 +857,7 @@ class VaultLockSettingTab extends PluginSettingTab {
 					},
 					pick("theme", t.theme, THEMES, {
 						default: t.themeDefault,
+						none: t.themeNone,
 						win95: t.themeWin95,
 						terminal: t.themeTerminal,
 						"gameboy-snake": t.themeSnake,

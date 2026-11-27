@@ -120,6 +120,7 @@ const ko: Strings = {
 	resetAppearanceBtn: "초기화",
 	theme: "테마",
 	themeDefault: "기본",
+	themeNone: "테마 없음 (배경만)",
 	themeWin95: "Windows 95",
 	themeTerminal: "개발자 터미널",
 	themeSnake: "게임보이 스네이크 (게임)",

@@ -120,6 +120,7 @@ const es: Strings = {
 	resetAppearanceBtn: "Restablecer",
 	theme: "Tema",
 	themeDefault: "Predeterminado",
+	themeNone: "Sin tema (solo fondo)",
 	themeWin95: "Windows 95",
 	themeTerminal: "Terminal de desarrollo",
 	themeSnake: "Serpiente portátil (juego)",

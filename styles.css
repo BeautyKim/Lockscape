@@ -669,6 +669,24 @@ body.is-frameless .vault-lock-overlay { padding-top: max(var(--titlebar-height, 
 	body.mod-macos.is-frameless .vault-lock-overlay[data-theme="win95"] .vl-chrome-title::before { left: 77px; }
 }
 
+/* ---------- No theme: no window, no title bar, no card. The clock, text and field sit on the background
+ * (the chosen photo or video, else Obsidian's own background). "Locked" in auto mode is hidden over a photo; with the
+ * clock and icon off and the field hidden until hover, only the picture is left. ---------- */
+.vault-lock-overlay[data-theme="none"] { background: var(--background-primary, #fff); }
+.vault-lock-overlay[data-theme="none"] .vault-lock-stage {
+	--vl-win-bg: transparent;
+	padding: 24px;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	overflow: visible;
+}
+.vault-lock-overlay[data-theme="none"] .vault-lock-icon svg { stroke-width: 1.5; }
+/* over a photo: the same readable shadows as the photo style (the themes turn them off for their own windows) */
+.vault-lock-overlay[data-theme="none"].has-image :is(.vault-lock-time, .vault-lock-date, .vault-lock-title) { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45); }
+.vault-lock-overlay[data-theme="none"].has-image .vault-lock-icon { filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45)); }
+@media (max-width: 480px) { body .vault-lock-overlay[data-theme="none"] .vault-lock-stage { overflow: visible; } }
+
 /* ---------- Default (simple, white window) ---------- */
 .vault-lock-overlay[data-theme="default"] { background: var(--background-secondary, #f3f3f5); }
 .vault-lock-overlay[data-theme="default"] .vault-lock-stage {

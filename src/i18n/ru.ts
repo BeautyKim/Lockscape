@@ -120,6 +120,7 @@ const ru: Strings = {
 	resetAppearanceBtn: "Сбросить",
 	theme: "Тема",
 	themeDefault: "По умолчанию",
+	themeNone: "Без темы (только фон)",
 	themeWin95: "Windows 95",
 	themeTerminal: "Терминал разработчика",
 	themeSnake: "Змейка на консоли (игра)",

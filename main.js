@@ -459,6 +459,7 @@ var en = {
   resetAppearanceBtn: "Reset",
   theme: "Theme",
   themeDefault: "Default",
+  themeNone: "No theme (background only)",
   themeWin95: "Windows 95",
   themeTerminal: "Developer terminal",
   themeSnake: "Handheld snake (game)",
@@ -625,6 +626,7 @@ var ko = {
   resetAppearanceBtn: "\uCD08\uAE30\uD654",
   theme: "\uD14C\uB9C8",
   themeDefault: "\uAE30\uBCF8",
+  themeNone: "\uD14C\uB9C8 \uC5C6\uC74C (\uBC30\uACBD\uB9CC)",
   themeWin95: "Windows 95",
   themeTerminal: "\uAC1C\uBC1C\uC790 \uD130\uBBF8\uB110",
   themeSnake: "\uAC8C\uC784\uBCF4\uC774 \uC2A4\uB124\uC774\uD06C (\uAC8C\uC784)",
@@ -791,6 +793,7 @@ var ja = {
   resetAppearanceBtn: "\u30EA\u30BB\u30C3\u30C8",
   theme: "\u30C6\u30FC\u30DE",
   themeDefault: "\u6A19\u6E96",
+  themeNone: "\u30C6\u30FC\u30DE\u306A\u3057 (\u80CC\u666F\u306E\u307F)",
   themeWin95: "Windows 95",
   themeTerminal: "\u958B\u767A\u8005\u30BF\u30FC\u30DF\u30CA\u30EB",
   themeSnake: "\u643A\u5E2F\u30B2\u30FC\u30E0\u6A5F\u30B9\u30CD\u30FC\u30AF (\u30B2\u30FC\u30E0)",
@@ -957,6 +960,7 @@ var zh = {
   resetAppearanceBtn: "\u91CD\u7F6E",
   theme: "\u4E3B\u9898",
   themeDefault: "\u9ED8\u8BA4",
+  themeNone: "\u65E0\u4E3B\u9898 (\u4EC5\u80CC\u666F)",
   themeWin95: "Windows 95",
   themeTerminal: "\u5F00\u53D1\u8005\u7EC8\u7AEF",
   themeSnake: "\u638C\u673A\u8D2A\u5403\u86C7 (\u6E38\u620F)",
@@ -1123,6 +1127,7 @@ var zhTW = {
   resetAppearanceBtn: "\u91CD\u8A2D",
   theme: "\u4E3B\u984C",
   themeDefault: "\u9810\u8A2D",
+  themeNone: "\u7121\u4E3B\u984C (\u50C5\u80CC\u666F)",
   themeWin95: "Windows 95",
   themeTerminal: "\u958B\u767C\u8005\u7D42\u7AEF\u6A5F",
   themeSnake: "\u638C\u6A5F\u8CAA\u98DF\u86C7 (\u904A\u6232)",
@@ -1289,6 +1294,7 @@ var es = {
   resetAppearanceBtn: "Restablecer",
   theme: "Tema",
   themeDefault: "Predeterminado",
+  themeNone: "Sin tema (solo fondo)",
   themeWin95: "Windows 95",
   themeTerminal: "Terminal de desarrollo",
   themeSnake: "Serpiente port\xE1til (juego)",
@@ -1455,6 +1461,7 @@ var fr = {
   resetAppearanceBtn: "R\xE9initialiser",
   theme: "Th\xE8me",
   themeDefault: "Par d\xE9faut",
+  themeNone: "Aucun th\xE8me (fond seul)",
   themeWin95: "Windows 95",
   themeTerminal: "Terminal d\xE9veloppeur",
   themeSnake: "Snake console portable (jeu)",
@@ -1621,6 +1628,7 @@ var de = {
   resetAppearanceBtn: "Zur\xFCcksetzen",
   theme: "Design",
   themeDefault: "Standard",
+  themeNone: "Kein Design (nur Hintergrund)",
   themeWin95: "Windows 95",
   themeTerminal: "Entwickler-Terminal",
   themeSnake: "Handheld-Snake (Spiel)",
@@ -1787,6 +1795,7 @@ var pt = {
   resetAppearanceBtn: "Redefinir",
   theme: "Tema",
   themeDefault: "Padr\xE3o",
+  themeNone: "Sem tema (s\xF3 o fundo)",
   themeWin95: "Windows 95",
   themeTerminal: "Terminal do desenvolvedor",
   themeSnake: "Snake port\xE1til (jogo)",
@@ -1953,6 +1962,7 @@ var ru = {
   resetAppearanceBtn: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C",
   theme: "\u0422\u0435\u043C\u0430",
   themeDefault: "\u041F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E",
+  themeNone: "\u0411\u0435\u0437 \u0442\u0435\u043C\u044B (\u0442\u043E\u043B\u044C\u043A\u043E \u0444\u043E\u043D)",
   themeWin95: "Windows 95",
   themeTerminal: "\u0422\u0435\u0440\u043C\u0438\u043D\u0430\u043B \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430",
   themeSnake: "\u0417\u043C\u0435\u0439\u043A\u0430 \u043D\u0430 \u043A\u043E\u043D\u0441\u043E\u043B\u0438 (\u0438\u0433\u0440\u0430)",
@@ -2042,7 +2052,7 @@ function clipChars(text, max) {
 }
 
 // src/themes.ts
-var THEMES = ["default", "win95", "terminal", "gameboy-snake", "neon-breakout", "folder-runner"];
+var THEMES = ["default", "none", "win95", "terminal", "gameboy-snake", "neon-breakout", "folder-runner"];
 var GAME_IDS = ["snake", "breakout", "runner"];
 var GAME_OF = {
   "gameboy-snake": "snake",
@@ -2054,6 +2064,7 @@ function gameOf(theme) {
 }
 var THEME_TEXT = {
   default: {},
+  none: {},
   win95: { unlock: "UNLOCK", placeholder: "none" },
   terminal: { unlock: "[UNLOCK]", title: "[ LOCKED ]", unlocked: "[ UNLOCKED ]", placeholder: "none" },
   "gameboy-snake": { unlock: "PLAY & UNLOCK" },
@@ -5363,6 +5374,7 @@ var VaultLockSettingTab = class extends import_obsidian3.PluginSettingTab {
           },
           pick("theme", t.theme, THEMES, {
             default: t.themeDefault,
+            none: t.themeNone,
             win95: t.themeWin95,
             terminal: t.themeTerminal,
             "gameboy-snake": t.themeSnake,

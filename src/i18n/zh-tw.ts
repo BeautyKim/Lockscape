@@ -120,6 +120,7 @@ const zhTW: Strings = {
 	resetAppearanceBtn: "重設",
 	theme: "主題",
 	themeDefault: "預設",
+	themeNone: "無主題 (僅背景)",
 	themeWin95: "Windows 95",
 	themeTerminal: "開發者終端機",
 	themeSnake: "掌機貪食蛇 (遊戲)",
